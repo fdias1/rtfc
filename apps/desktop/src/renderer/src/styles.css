@@ -1,0 +1,39 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+@import '@fontsource/jetbrains-mono/400.css';
+
+/* Design tokens — PRD §8. Tema claro apenas no MVP. */
+@theme {
+  --color-primary: #0e5a6b;
+  --color-primary-strong: #0a4352;
+  --color-primary-soft: #e3f0f2;
+  --color-bg: #f7fafa;
+  --color-surface: #ffffff;
+  --color-border: #d9e3e5;
+  --color-text: #1c2b30;
+  --color-text-muted: #5e7177;
+
+  --color-verdict-true: #2f7d5c;
+  --color-verdict-context: #b7791f;
+  --color-verdict-false: #b4413a;
+  --color-verdict-inconclusive: #6b7c82;
+
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --radius-card: 8px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}

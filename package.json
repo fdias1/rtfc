@@ -1,0 +1,18 @@
+{
+  "name": "rtfc",
+  "private": true,
+  "license": "SEE LICENSE IN LICENSE.md",
+  "packageManager": "pnpm@10.16.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "pnpm --filter @rtfc/desktop dev",
+    "build": "pnpm --filter @rtfc/desktop build",
+    "backend:sync": "uv sync --project backend",
+    "protocol:gen": "pnpm --filter @rtfc/protocol gen",
+    "protocol:check": "pnpm --filter @rtfc/protocol check",
+    "lint": "pnpm -r lint && uv run --project backend ruff check backend && uv run --project backend ruff format --check backend",
+    "typecheck": "pnpm -r typecheck && uv run --project backend mypy --config-file backend/pyproject.toml",
+    "test": "pnpm -r test && uv run --project backend pytest backend",
+    "licenses:check": "node scripts/check-node-licenses.mjs && uv run --project backend python backend/scripts/check_licenses.py"
+  }
+}

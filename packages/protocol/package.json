@@ -1,0 +1,19 @@
+{
+  "name": "@rtfc/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "gen": "node scripts/gen.mjs",
+    "check": "node scripts/gen.mjs --check",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'protocol: nada para lintar (código gerado)'",
+    "test": "echo 'protocol: sem testes'"
+  },
+  "devDependencies": {
+    "json-schema-to-typescript": "^16.0.0",
+    "typescript": "^6.0.3"
+  }
+}

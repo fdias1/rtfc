@@ -1,0 +1,50 @@
+[project]
+name = "rtfc"
+version = "0.1.0"
+description = "rtfc backend: transcrição, extração de afirmações e checagem de fatos"
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+authors = [
+    { name = "Fábio Dias", email = "contato.fdias1@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.148.0",
+    "pydantic>=2.14.1",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.14.0",
+    "mypy>=2.4.0",
+    "pip-licenses>=5.5.5",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.17.1",
+]
+
+[project.scripts]
+rtfc-backend = "rtfc.__main__:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "RUF"]
+# Texto em pt-BR usa travessões e aspas tipográficas.
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+packages = ["rtfc"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
