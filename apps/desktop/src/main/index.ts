@@ -1,9 +1,24 @@
+import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { BrowserWindow, app, ipcMain, shell } from 'electron'
+import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron'
 import { IPC } from '@shared/ipc'
+import { MEDIA_EXTENSIONS } from '@shared/media'
+import {
+  enableLoopbackFeatures,
+  ensureMicrophoneAccess,
+  getMediaAccess,
+  openPrivacySettings,
+  setupCapture
+} from './capture'
+import { allowMediaDir, allowMediaFile, handleMediaProtocol, registerMediaScheme } from './media-protocol'
 import { SidecarManager } from './sidecar'
 
-const sidecar = new SidecarManager()
+// Antes do ready.
+registerMediaScheme()
+enableLoopbackFeatures()
+
+const sessionsDir = process.env.RTFC_SESSIONS_DIR ?? join(app.getPath('documents'), 'rtfc', 'sessions')
+const sidecar = new SidecarManager({ sessionsDir })
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -42,12 +57,36 @@ function createWindow(): BrowserWindow {
   return win
 }
 
+function allowIfMediaFile(filePath: unknown): string | null {
+  if (typeof filePath !== 'string' || !existsSync(filePath) || !statSync(filePath).isFile()) return null
+  allowMediaFile(filePath)
+  return filePath
+}
+
 function registerIpc(): void {
   ipcMain.handle(IPC.sidecarGetStatus, () => sidecar.getStatus())
   ipcMain.handle(IPC.sidecarRestart, () => sidecar.restart())
   sidecar.on('status', (status) => {
     for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC.sidecarStatus, status)
   })
+
+  ipcMain.handle(IPC.mediaOpenFile, async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const options: Electron.OpenDialogOptions = {
+      title: 'Abrir áudio ou vídeo',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Áudio e vídeo', extensions: MEDIA_EXTENSIONS },
+        { name: 'Todos os arquivos', extensions: ['*'] }
+      ]
+    }
+    const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
+    return result.canceled ? null : allowIfMediaFile(result.filePaths[0])
+  })
+  ipcMain.handle(IPC.mediaAllowFile, (_event, filePath: unknown) => allowIfMediaFile(filePath))
+  ipcMain.handle(IPC.mediaEnsureMic, () => ensureMicrophoneAccess())
+  ipcMain.handle(IPC.mediaGetAccess, (_event, kind: 'microphone' | 'screen') => getMediaAccess(kind))
+  ipcMain.handle(IPC.mediaOpenPrivacy, (_event, kind: 'microphone' | 'screen') => openPrivacySettings(kind))
 }
 
 let quitting = false
@@ -63,6 +102,9 @@ app.on('window-all-closed', () => {
 })
 
 void app.whenReady().then(() => {
+  allowMediaDir(sessionsDir)
+  handleMediaProtocol()
+  setupCapture()
   registerIpc()
   sidecar.start()
   createWindow()

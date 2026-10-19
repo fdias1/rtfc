@@ -14,6 +14,12 @@ from rtfc.protocol.messages import (
     Ping,
     Pong,
     ServerMessage,
+    SessionEnded,
+    SessionInfo,
+    SessionProgress,
+    SessionStart,
+    SessionStarted,
+    SessionStop,
     parse_client_message,
 )
 
@@ -27,5 +33,11 @@ __all__ = [
     "Ping",
     "Pong",
     "ServerMessage",
+    "SessionEnded",
+    "SessionInfo",
+    "SessionProgress",
+    "SessionStart",
+    "SessionStarted",
+    "SessionStop",
     "parse_client_message",
 ]

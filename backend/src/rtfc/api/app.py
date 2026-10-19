@@ -2,15 +2,23 @@
 
 O backend só escuta em 127.0.0.1 e exige o token gerado pelo processo main
 do Electron em todas as rotas (header `Authorization: Bearer` ou `?token=`).
+
+No WebSocket, frames de texto são mensagens JSON do protocolo; frames binários são
+PCM s16le mono da sessão ao vivo ativa nesta conexão (ver `SessionStart`).
 """
 
+import asyncio
+import logging
 import secrets
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
-from pydantic import ValidationError
+import anyio
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket
+from pydantic import BaseModel, ValidationError
+from starlette.websockets import WebSocketState
 
 from rtfc import __version__
+from rtfc.audio.sources import AudioSourceError
 from rtfc.protocol import (
     PROTOCOL_VERSION,
     EchoReply,
@@ -19,15 +27,24 @@ from rtfc.protocol import (
     Hello,
     Ping,
     Pong,
+    SessionEnded,
+    SessionProgress,
+    SessionStart,
+    SessionStarted,
+    SessionStop,
     parse_client_message,
 )
+from rtfc.sessions import Session, SessionError, SessionManager
+
+log = logging.getLogger(__name__)
 
 # Código de fechamento para token inválido (faixa 4000–4999 é livre para aplicações).
 WS_CLOSE_UNAUTHORIZED = 4401
 
 
-def create_app(token: str) -> FastAPI:
+def create_app(token: str, sessions: SessionManager | None = None) -> FastAPI:
     app = FastAPI(title="rtfc backend", version=__version__, docs_url=None, redoc_url=None)
+    manager = sessions or SessionManager()
 
     def _valid(candidate: str | None) -> bool:
         return candidate is not None and secrets.compare_digest(candidate, token)
@@ -42,7 +59,12 @@ def create_app(token: str) -> FastAPI:
 
     @app.get("/health", dependencies=[Depends(require_token)])
     async def health() -> dict[str, object]:
-        return {"status": "ok", "version": __version__, "protocol_version": PROTOCOL_VERSION}
+        return {
+            "status": "ok",
+            "version": __version__,
+            "protocol_version": PROTOCOL_VERSION,
+            "sessions_dir": str(manager.sessions_dir),
+        }
 
     @app.websocket("/ws")
     async def ws(
@@ -52,24 +74,107 @@ def create_app(token: str) -> FastAPI:
             await websocket.close(code=WS_CLOSE_UNAUTHORIZED)
             return
         await websocket.accept()
-        await websocket.send_text(Hello(server_version=__version__).model_dump_json())
+        conn = _Connection(websocket, manager)
+        await conn.send(Hello(server_version=__version__))
         try:
-            while True:
-                raw = await websocket.receive_text()
-                await websocket.send_text(_handle(raw))
-        except WebSocketDisconnect:
-            return
+            await conn.run()
+        finally:
+            # Protegido contra cancelamento: finalizar o .ogg e o session.json é obrigatório
+            # mesmo quando o servidor derruba a conexão.
+            with anyio.CancelScope(shield=True):
+                await conn.close()
 
     return app
 
 
-def _handle(raw: str) -> str:
-    try:
-        msg = parse_client_message(raw)
-    except ValidationError as exc:
-        return ErrorMessage(code="invalid_message", message=str(exc.errors()[:1])).model_dump_json()
-    match msg:
-        case Ping():
-            return Pong(id=msg.id).model_dump_json()
-        case EchoRequest():
-            return EchoReply(id=msg.id, text=msg.text).model_dump_json()
+class _Connection:
+    """Uma conexão da UI. As sessões abertas por ela terminam quando ela fecha."""
+
+    def __init__(self, websocket: WebSocket, manager: SessionManager) -> None:
+        self.ws = websocket
+        self.manager = manager
+        self._send_lock = asyncio.Lock()
+        self._owned: list[str] = []
+        self._live: Session | None = None
+        self._warned_no_live = False
+
+    async def send(self, msg: BaseModel) -> None:
+        if self.ws.client_state != WebSocketState.CONNECTED:
+            return
+        async with self._send_lock:
+            await self.ws.send_text(msg.model_dump_json())
+
+    async def emit(self, event: SessionProgress | SessionEnded) -> None:
+        if isinstance(event, SessionEnded) and self._live and self._live.id == event.session.id:
+            self._live = None
+        await self.send(event)
+
+    async def run(self) -> None:
+        while True:
+            message = await self.ws.receive()
+            if message["type"] == "websocket.disconnect":
+                return
+            if (data := message.get("bytes")) is not None:
+                await self._on_audio(data)
+            elif (text := message.get("text")) is not None:
+                reply = await self._on_text(text)
+                if reply is not None:
+                    await self.send(reply)
+
+    async def close(self) -> None:
+        self._live = None
+        await self.manager.stop_all(self._owned)
+
+    async def _on_audio(self, pcm: bytes) -> None:
+        session = self._live
+        if session is None:
+            if not self._warned_no_live:
+                self._warned_no_live = True
+                await self.send(
+                    ErrorMessage(code="no_live_session", message="áudio sem sessão ativa")
+                )
+            return
+        try:
+            await session.push_pcm(pcm)
+        except (SessionError, AudioSourceError) as exc:
+            log.error("gravação falhou: %s", exc)
+            self._live = None
+            await self.send(ErrorMessage(code="recording_failed", message=str(exc)))
+
+    async def _on_text(self, raw: str) -> BaseModel | None:
+        try:
+            msg = parse_client_message(raw)
+        except ValidationError as exc:
+            return ErrorMessage(code="invalid_message", message=str(exc.errors()[:1]))
+        try:
+            match msg:
+                case Ping():
+                    return Pong(id=msg.id)
+                case EchoRequest():
+                    return EchoReply(id=msg.id, text=msg.text)
+                case SessionStart():
+                    return await self._start(msg)
+                case SessionStop():
+                    return await self.manager.stop(msg.session_id, request_id=msg.id)
+        except SessionError as exc:
+            return ErrorMessage(id=msg.id, code="session_error", message=str(exc))
+
+    async def _start(self, msg: SessionStart) -> SessionStarted:
+        if msg.source == "file":
+            if not msg.file_path:
+                raise SessionError("file_path é obrigatório para sessões de arquivo")
+            session = await self.manager.start_file(msg.file_path, self.emit)
+        else:
+            if msg.capture == "ui" and self._live is not None:
+                raise SessionError("já existe uma sessão ao vivo nesta conexão")
+            session = await self.manager.start_live(
+                msg.source,
+                self.emit,
+                sample_rate=msg.sample_rate,
+                backend_capture=msg.capture == "backend",
+            )
+            if msg.capture == "ui":
+                self._live = session
+                self._warned_no_live = False
+        self._owned.append(session.id)
+        return SessionStarted(id=msg.id, session=session.info)

@@ -734,6 +734,7 @@ name = "rtfc"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "anyio" },
     { name = "fastapi" },
     { name = "pydantic" },
     { name = "uvicorn", extra = ["standard"] },
@@ -751,6 +752,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anyio", specifier = ">=4.15.1" },
     { name = "fastapi", specifier = ">=0.148.0" },
     { name = "pydantic", specifier = ">=2.14.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.54.0" },

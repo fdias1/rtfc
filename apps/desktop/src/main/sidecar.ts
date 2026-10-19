@@ -43,6 +43,11 @@ function resolveCommand(): Command {
   }
 }
 
+export interface SidecarOptions {
+  /** Pasta onde o backend cria as sessões (`RTFC_SESSIONS_DIR`). */
+  sessionsDir: string
+}
+
 export class SidecarManager extends EventEmitter<{ status: [SidecarStatus] }> {
   private child: ChildProcess | null = null
   private status: SidecarStatus = { state: 'stopped', restarts: 0 }
@@ -50,6 +55,10 @@ export class SidecarManager extends EventEmitter<{ status: [SidecarStatus] }> {
   private failures = 0
   private readyAt = 0
   private restartTimer: NodeJS.Timeout | null = null
+
+  constructor(private readonly options: SidecarOptions) {
+    super()
+  }
 
   getStatus(): SidecarStatus {
     return this.status
@@ -113,7 +122,13 @@ export class SidecarManager extends EventEmitter<{ status: [SidecarStatus] }> {
 
     const child = spawn(command.cmd, command.args, {
       cwd: command.cwd,
-      env: { ...process.env, RTFC_TOKEN: token, PYTHONUNBUFFERED: '1' },
+      env: {
+        ...process.env,
+        RTFC_TOKEN: token,
+        RTFC_SESSIONS_DIR: this.options.sessionsDir,
+        PYTHONUNBUFFERED: '1',
+        PYTHONUTF8: '1'
+      },
       stdio: ['pipe', 'pipe', 'pipe']
     })
     this.child = child

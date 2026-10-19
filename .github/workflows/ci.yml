@@ -26,6 +26,16 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Instalar ffmpeg
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Linux)   sudo apt-get update -q && sudo apt-get install -y -q ffmpeg ;;
+            macOS)   brew install ffmpeg ;;
+            Windows) choco install ffmpeg -y --no-progress ;;
+          esac
+          ffmpeg -version | head -1
+
       - name: Instalar dependências
         id: install
         run: |
@@ -62,6 +72,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - uses: astral-sh/setup-uv@v6
+      - run: brew install ffmpeg
       - run: pnpm install --frozen-lockfile && uv sync --project backend --locked
       - name: E2E (Electron + sidecar)
         run: pnpm --filter @rtfc/desktop test:e2e

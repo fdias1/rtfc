@@ -1,13 +1,18 @@
 /// <reference lib="dom" />
 // Aceite do M0: o app abre, o backend sobe sozinho, e matar o Python reconecta automaticamente.
 
-import { resolve } from 'node:path'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test } from '@playwright/test'
 import type { SidecarStatus } from '../src/shared/ipc'
 import type {} from '../src/preload/index.d'
 
 test('backend sobe com o app e se recupera depois de morrer', async () => {
-  const app = await electron.launch({ args: [resolve(__dirname, '..')] })
+  const app = await electron.launch({
+    args: [resolve(__dirname, '..')],
+    env: { ...process.env, RTFC_SESSIONS_DIR: mkdtempSync(join(tmpdir(), 'rtfc-e2e-')) } as Record<string, string>
+  })
   try {
     const win = await app.firstWindow()
     const status = win.getByTestId('connection-status')

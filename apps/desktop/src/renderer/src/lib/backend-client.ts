@@ -11,7 +11,7 @@ export interface BackendClientEvents {
 type Pending = { resolve: (msg: ServerMessage) => void; reject: (err: Error) => void; timer: number }
 
 const RECONNECT_MS = 1000
-const REQUEST_TIMEOUT_MS = 5000
+const REQUEST_TIMEOUT_MS = 15_000
 
 /** Distribui mensagens sem `id`, sem precisar do `Omit` sobre a união (que perderia o discriminador). */
 type WithoutId<T> = T extends unknown ? Omit<T, 'id'> : never
@@ -40,8 +40,12 @@ export class BackendClient {
     this.reconnectTimer = null
     const ws = this.ws
     this.ws = null
-    ws?.close()
+    if (!ws) return
+    const wasOpen = ws.readyState === WebSocket.OPEN
+    ws.close()
     this.failPending('desconectado')
+    // O onclose desse socket é ignorado (já não é o atual), então avisamos aqui.
+    if (wasOpen) this.events.onClose()
   }
 
   request(msg: WithoutId<ClientMessage>): Promise<ServerMessage> {
@@ -56,6 +60,18 @@ export class BackendClient {
       this.pending.set(id, { resolve, reject, timer })
       ws.send(JSON.stringify({ ...msg, id }))
     })
+  }
+
+  get isOpen(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN
+  }
+
+  /** Envia PCM da sessão ao vivo ativa. Devolve false se não houver conexão. */
+  sendBinary(data: ArrayBuffer): boolean {
+    const ws = this.ws
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false
+    ws.send(data)
+    return true
   }
 
   private open(): void {

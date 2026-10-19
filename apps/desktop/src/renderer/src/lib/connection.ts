@@ -1,16 +1,36 @@
 // Liga o status do sidecar (vindo do main por IPC) ao cliente WebSocket e ao store.
 
+import type { ServerMessage } from '@rtfc/protocol'
 import type { SidecarStatus } from '@shared/ipc'
 import { useConnection } from '../store/connection'
 import { BackendClient } from './backend-client'
 
 const PING_INTERVAL_MS = 5000
 
+type MessageListener = (msg: ServerMessage) => void
+const messageListeners = new Set<MessageListener>()
+const closeListeners = new Set<() => void>()
+
+/** Mensagens do servidor que não são respostas a uma requisição (eventos). */
+export function onServerMessage(listener: MessageListener): () => void {
+  messageListeners.add(listener)
+  return () => messageListeners.delete(listener)
+}
+
+export function onSocketClose(listener: () => void): () => void {
+  closeListeners.add(listener)
+  return () => closeListeners.delete(listener)
+}
+
 export const backend = new BackendClient({
   onOpen: () => useConnection.getState().setSocket('open'),
-  onClose: () => useConnection.getState().setSocket('closed'),
+  onClose: () => {
+    useConnection.getState().setSocket('closed')
+    for (const l of closeListeners) l()
+  },
   onMessage: (msg) => {
     if (msg.type === 'hello') useConnection.getState().setServerVersion(msg.server_version)
+    for (const l of messageListeners) l(msg)
   }
 })
 
