@@ -8,7 +8,9 @@ import asyncio
 import contextlib
 import logging
 import os
+import re
 import secrets
+import shutil
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,6 +23,7 @@ from rtfc.audio.sources import AudioSourceError, FileDecoder, LiveRecorder
 from rtfc.protocol import (
     SessionEnded,
     SessionInfo,
+    SessionListItem,
     SessionProgress,
     SessionUpdated,
     TranscriptPartial,
@@ -40,6 +43,7 @@ log = logging.getLogger(__name__)
 EventSink = Callable[[BaseModel], Awaitable[None]]
 
 LIVE_PROGRESS_EVERY_MS = 1000
+SESSION_ID_RE = re.compile(r"\d{8}-\d{6}-(mic|system|file)-[0-9a-f]{4}")
 
 
 class SessionError(RuntimeError):
@@ -85,9 +89,13 @@ class Session:
         return self.info.id
 
     def save(self) -> None:
-        path = Path(self.info.dir) / "session.json"
+        self.write_info(self.info)
+
+    @staticmethod
+    def write_info(info: SessionInfo) -> None:
+        path = Path(info.dir) / "session.json"
         tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(self.info.model_dump_json(indent=2), encoding="utf-8")
+        tmp.write_text(info.model_dump_json(indent=2), encoding="utf-8")
         tmp.replace(path)
 
     async def emit(self, event: BaseModel) -> None:
@@ -321,7 +329,13 @@ class SessionManager:
                 lat[len(lat) // 2],
                 lat[int(0.9 * (len(lat) - 1))],
             )
-        session.info.status = "error" if reason == "error" else "completed"
+        if reason == "error":
+            session.info.status = "error"
+        elif reason == "stopped" and session.info.source == "file":
+            # Arquivo cancelado no meio: a transcrição ficou incompleta.
+            session.info.status = "interrupted"
+        else:
+            session.info.status = "completed"
         session.info.ended_at = _now()
         session.save()
         event = SessionEnded.model_validate(
@@ -330,6 +344,65 @@ class SessionManager:
         if notify:
             await session.emit(event)
         return event
+
+    # --- Sessões salvas -------------------------------------------------------
+
+    def _session_dir(self, session_id: str) -> Path:
+        # IDs são gerados por nós; qualquer outra coisa (/, ..) é recusada.
+        if not SESSION_ID_RE.fullmatch(session_id):
+            raise SessionError(f"id de sessão inválido: {session_id}")
+        path = self.sessions_dir / session_id
+        if not (path / "session.json").is_file():
+            raise SessionError(f"sessão não encontrada: {session_id}")
+        return path
+
+    def load_info(self, session_id: str) -> SessionInfo:
+        if session_id in self._sessions:
+            return self._sessions[session_id].info
+        path = self._session_dir(session_id) / "session.json"
+        return SessionInfo.model_validate_json(path.read_text(encoding="utf-8"))
+
+    def _list_sync(self) -> list[SessionListItem]:
+        items: list[SessionListItem] = []
+        if not self.sessions_dir.is_dir():
+            return items
+        for child in self.sessions_dir.iterdir():
+            meta = child / "session.json"
+            if not (SESSION_ID_RE.fullmatch(child.name) and meta.is_file()):
+                continue
+            try:
+                info = SessionInfo.model_validate_json(meta.read_text(encoding="utf-8"))
+            except ValueError:
+                log.warning("session.json inválido em %s", child)
+                continue
+            if child.name in self._sessions:
+                info = self._sessions[child.name].info
+            elif info.status in ("recording", "processing"):
+                # Ficou "em andamento" sem estar ativa: o app caiu no meio. Corrige no disco.
+                info.status = "interrupted"
+                Session.write_info(info)
+            size = sum(f.stat().st_size for f in child.rglob("*") if f.is_file())
+            count = self.store.segment_count(info.id) if self.store else 0
+            items.append(SessionListItem(session=info, size_bytes=size, segment_count=count))
+        items.sort(key=lambda i: i.session.started_at, reverse=True)
+        return items
+
+    async def list_sessions(self) -> list[SessionListItem]:
+        return await asyncio.to_thread(self._list_sync)
+
+    async def rename(self, session_id: str, title: str | None) -> SessionInfo:
+        info = self.load_info(session_id)
+        info.title = (title or "").strip() or None
+        Session.write_info(info)
+        return info
+
+    async def delete(self, session_id: str) -> None:
+        if session_id in self._sessions:
+            raise SessionError("encerre a sessão antes de apagá-la")
+        path = self._session_dir(session_id)
+        await asyncio.to_thread(shutil.rmtree, path)
+        if self.store:
+            self.store.delete_session(session_id)
 
     def transcript(self, session_id: str) -> list[TranscriptSegmentData]:
         if not self.store:

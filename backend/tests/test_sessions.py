@@ -173,3 +173,51 @@ def test_audio_without_session_warns_once(client: TestClient) -> None:
         second = json.loads(ws.receive_text())
     assert first["code"] == "no_live_session"
     assert second["type"] == "pong"
+
+
+def test_list_rename_delete_sessions(client: TestClient, manager: SessionManager) -> None:
+    with client.websocket_connect(f"/ws?token={TOKEN}") as ws:
+        recv_until(ws, "hello")
+        ws.send_text(json.dumps({"type": "session.start", "id": "1", "source": "mic"}))
+        sid = recv_until(ws, "session.started")["session"]["id"]
+        ws.send_bytes(sine_pcm(0.5))
+        ws.send_text(json.dumps({"type": "session.stop", "id": "2", "session_id": sid}))
+        recv_until(ws, "session.ended")
+
+        ws.send_text(json.dumps({"type": "session.list", "id": "3"}))
+        items = recv_until(ws, "session.list.result")["sessions"]
+        assert [i["session"]["id"] for i in items] == [sid]
+        assert items[0]["size_bytes"] > 0
+
+        ws.send_text(
+            json.dumps(
+                {"type": "session.rename", "id": "4", "session_id": sid, "title": " Debate "}
+            )
+        )
+        assert recv_until(ws, "session.updated")["session"]["title"] == "Debate"
+
+        ws.send_text(json.dumps({"type": "session.delete", "id": "5", "session_id": sid}))
+        assert recv_until(ws, "session.deleted")["session_id"] == sid
+        assert not (manager.sessions_dir / sid).exists()
+
+        ws.send_text(json.dumps({"type": "session.delete", "id": "6", "session_id": "../etc"}))
+        reply = json.loads(ws.receive_text())
+        assert reply["type"] == "error" and reply["code"] == "session_error"
+
+
+def test_list_marks_abandoned_sessions_as_interrupted(manager: SessionManager) -> None:
+    import asyncio
+
+    from rtfc.protocol import SessionInfo
+
+    sid = "20260101-120000-mic-abcd"
+    d = manager.sessions_dir / sid
+    d.mkdir(parents=True)
+    info = SessionInfo(
+        id=sid, source="mic", status="recording", dir=str(d),
+        audio_path=str(d / "audio.ogg"), started_at="2026-01-01T15:00:00+00:00",
+    )  # fmt: skip
+    (d / "session.json").write_text(info.model_dump_json())
+    items = asyncio.run(manager.list_sessions())
+    assert items[0].session.status == "interrupted"
+    assert '"interrupted"' in (d / "session.json").read_text()

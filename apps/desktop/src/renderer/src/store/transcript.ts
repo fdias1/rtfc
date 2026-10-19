@@ -4,19 +4,31 @@ import { create } from 'zustand'
 import type { ServerMessage, SttStatusMessage, TranscriptSegmentData } from '@rtfc/protocol'
 import { onServerMessage } from '../lib/connection'
 
-interface Partial {
+interface OpenText {
   startMs: number
   confirmed: string
   tentative: string
 }
 
+/** Trecho selecionado na transcrição (base da checagem manual, RF4.4). */
+export interface TranscriptSelection {
+  text: string
+  startMs: number
+  endMs: number
+  /** Segmento/palavra inicial e final (inclusivos). */
+  from: { segment: number; word: number }
+  to: { segment: number; word: number }
+}
+
 interface TranscriptState {
   sessionId: string | null
   segments: TranscriptSegmentData[]
-  partial: Partial | null
+  partial: OpenText | null
   /** Latência do último segmento confirmado (ao vivo). */
   lastLatencyMs: number | null
   stt: SttStatusMessage | null
+  selection: TranscriptSelection | null
+  setSelection(selection: TranscriptSelection | null): void
   reset(sessionId: string): void
   load(sessionId: string, segments: TranscriptSegmentData[]): void
   handle(msg: ServerMessage): void
@@ -28,13 +40,18 @@ export const useTranscript = create<TranscriptState>((set, get) => ({
   partial: null,
   lastLatencyMs: null,
   stt: null,
+  selection: null,
+
+  setSelection(selection) {
+    set({ selection })
+  },
 
   reset(sessionId) {
-    set({ sessionId, segments: [], partial: null, lastLatencyMs: null })
+    set({ sessionId, segments: [], partial: null, lastLatencyMs: null, selection: null })
   },
 
   load(sessionId, segments) {
-    set({ sessionId, segments, partial: null })
+    set({ sessionId, segments, partial: null, lastLatencyMs: null, selection: null })
   },
 
   handle(msg) {

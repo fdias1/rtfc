@@ -14,7 +14,8 @@ export interface Launched {
 export const TEST_ENV = { RTFC_FAKE_MEDIA: '1', RTFC_STT_ENGINE: 'faster-whisper', RTFC_STT_MODEL: 'tiny' }
 
 export async function launchApp(extraEnv: Record<string, string> = {}): Promise<Launched> {
-  const sessionsDir = mkdtempSync(join(tmpdir(), 'rtfc-e2e-'))
+  // Reusar a pasta (RTFC_SESSIONS_DIR em extraEnv) simula reabrir o app com sessões salvas.
+  const sessionsDir = extraEnv.RTFC_SESSIONS_DIR ?? mkdtempSync(join(tmpdir(), 'rtfc-e2e-'))
   const app = await electron.launch({
     args: [resolve(__dirname, '..')],
     env: { ...process.env, ...TEST_ENV, RTFC_SESSIONS_DIR: sessionsDir, ...extraEnv } as Record<string, string>
@@ -53,4 +54,42 @@ export function onlySessionDir(sessionsDir: string): string {
   const dirs = readdirSync(sessionsDir)
   expect(dirs).toHaveLength(1)
   return join(sessionsDir, dirs[0]!)
+}
+
+/** Fala pt-BR gerada com a voz Luciana do macOS (WAV 48 kHz mono, com silêncio nas pontas). */
+export function speechWav(text: string): string {
+  const dir = mkdtempSync(join(tmpdir(), 'rtfc-fala-'))
+  const aiff = join(dir, 'fala.aiff')
+  const wav = join(dir, 'fala.wav')
+  execFileSync('say', ['-v', 'Luciana', '-o', aiff, text])
+  execFileSync('ffmpeg', [
+    '-v',
+    'error',
+    '-i',
+    aiff,
+    '-af',
+    'adelay=1000,apad=pad_dur=2',
+    '-ar',
+    '48000',
+    '-ac',
+    '1',
+    wav
+  ])
+  return wav
+}
+
+export function hasLuciana(): boolean {
+  if (process.platform !== 'darwin') return false
+  try {
+    return execFileSync('say', ['-v', '?'], { encoding: 'utf8' }).includes('Luciana')
+  } catch {
+    return false
+  }
+}
+
+/** Faz o seletor de arquivos devolver `path` (sem diálogo nativo no teste). */
+export async function stubOpenDialog(app: ElectronApplication, path: string): Promise<void> {
+  await app.evaluate(({ dialog }, p) => {
+    dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [p] })) as typeof dialog.showOpenDialog
+  }, path)
 }

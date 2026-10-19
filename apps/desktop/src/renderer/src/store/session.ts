@@ -4,6 +4,7 @@ import { create } from 'zustand'
 import type { ServerMessage, SessionInfo } from '@rtfc/protocol'
 import { CaptureError, startCapture, type AudioLevel, type LiveCapture, type LiveSource } from '../lib/audio/capture'
 import { backend, onServerMessage, onSocketClose } from '../lib/connection'
+import { useLibrary } from './library'
 import { useTranscript } from './transcript'
 
 export type SourceKind = LiveSource | 'file'
@@ -40,8 +41,6 @@ interface SessionState {
   /** Fonte da última tentativa de início (para saber qual permissão abrir num erro). */
   lastAttempt: SourceKind | null
   active: ActiveSession | null
-  /** Última sessão encerrada (para o player depois de parar). */
-  last: SessionInfo | null
   error: string | null
   errorCode: CaptureError['code'] | 'backend' | null
   level: AudioLevel
@@ -91,7 +90,6 @@ export const useSession = create<SessionState>((set, get) => ({
   starting: null,
   lastAttempt: null,
   active: null,
-  last: null,
   error: null,
   errorCode: null,
   level: SILENCE,
@@ -206,13 +204,15 @@ export const useSession = create<SessionState>((set, get) => ({
     try {
       const reply = await backend.request({ type: 'session.stop', session_id: active.info.id })
       if (reply.type === 'session.ended') {
-        set({ active: null, last: reply.session })
+        set({ active: null })
+        useLibrary.getState().showEnded(reply.session)
         return
       }
     } catch {
       // backend caiu: ele mesmo finaliza a gravação ao perder a conexão
     }
-    set({ active: null, last: active.info })
+    set({ active: null })
+    useLibrary.getState().showEnded(active.info)
   },
 
   togglePause() {
@@ -236,10 +236,10 @@ export const useSession = create<SessionState>((set, get) => ({
     } else if (msg.type === 'session.ended' && msg.id === null && active?.info.id === msg.session.id) {
       set({
         active: null,
-        last: msg.session,
         error: msg.reason === 'error' ? `Falha ao processar: ${msg.error ?? 'erro desconhecido'}` : get().error,
         errorCode: msg.reason === 'error' ? 'backend' : get().errorCode
       })
+      useLibrary.getState().showEnded(msg.session)
     } else if (msg.type === 'error' && msg.code === 'recording_failed' && active) {
       set({ error: `A gravação falhou: ${msg.message}`, errorCode: 'backend' })
       void get().stop()
@@ -253,11 +253,11 @@ export const useSession = create<SessionState>((set, get) => ({
     void active.capture?.stop()
     set({
       active: null,
-      last: active.info,
       level: SILENCE,
       error: 'A conexão com o backend caiu; a sessão foi encerrada e a gravação até aqui foi salva.',
       errorCode: 'backend'
     })
+    useLibrary.getState().showEnded(active.info)
   }
 }))
 

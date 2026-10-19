@@ -27,10 +27,16 @@ from rtfc.protocol import (
     Hello,
     Ping,
     Pong,
+    SessionDelete,
+    SessionDeleted,
     SessionEnded,
+    SessionList,
+    SessionListResult,
+    SessionRename,
     SessionStart,
     SessionStarted,
     SessionStop,
+    SessionUpdated,
     SttStatusMessage,
     TranscriptGet,
     TranscriptResult,
@@ -194,6 +200,14 @@ class _Connection:
                     return await self._start(msg)
                 case SessionStop():
                     return await self.manager.stop(msg.session_id, request_id=msg.id)
+                case SessionList():
+                    return SessionListResult(id=msg.id, sessions=await self.manager.list_sessions())
+                case SessionRename():
+                    info = await self.manager.rename(msg.session_id, msg.title)
+                    return SessionUpdated(id=msg.id, session=info)
+                case SessionDelete():
+                    await self.manager.delete(msg.session_id)
+                    return SessionDeleted(id=msg.id, session_id=msg.session_id)
                 case TranscriptGet():
                     return TranscriptResult(
                         id=msg.id,

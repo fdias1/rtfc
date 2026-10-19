@@ -1,4 +1,4 @@
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron'
 import { IPC } from '@shared/ipc'
@@ -63,6 +63,15 @@ function allowIfMediaFile(filePath: unknown): string | null {
   return filePath
 }
 
+/** Mesmo formato dos ids gerados pelo backend; impede caminhos como `../`. */
+const SESSION_ID_RE = /^\d{8}-\d{6}-(mic|system|file)-[0-9a-f]{4}$/
+
+function sessionDir(sessionId: unknown): string | null {
+  if (typeof sessionId !== 'string' || !SESSION_ID_RE.test(sessionId)) return null
+  const dir = join(sessionsDir, sessionId)
+  return existsSync(join(dir, 'session.json')) ? dir : null
+}
+
 function registerIpc(): void {
   ipcMain.handle(IPC.sidecarGetStatus, () => sidecar.getStatus())
   ipcMain.handle(IPC.sidecarRestart, () => sidecar.restart())
@@ -87,6 +96,24 @@ function registerIpc(): void {
   ipcMain.handle(IPC.mediaEnsureMic, () => ensureMicrophoneAccess())
   ipcMain.handle(IPC.mediaGetAccess, (_event, kind: 'microphone' | 'screen') => getMediaAccess(kind))
   ipcMain.handle(IPC.mediaOpenPrivacy, (_event, kind: 'microphone' | 'screen') => openPrivacySettings(kind))
+  ipcMain.handle(IPC.mediaAllowSession, (_event, sessionId: unknown) => {
+    // A lista de arquivos liberados é só da memória; ao reabrir uma sessão de arquivo depois de
+    // reiniciar o app, o original é liberado a partir do session.json da própria sessão.
+    const dir = sessionDir(sessionId)
+    if (!dir) return false
+    try {
+      const info = JSON.parse(readFileSync(join(dir, 'session.json'), 'utf8')) as { file_path?: string | null }
+      if (info.file_path) return allowIfMediaFile(info.file_path) !== null
+      return true
+    } catch {
+      return false
+    }
+  })
+  ipcMain.handle(IPC.appInfo, () => ({ version: app.getVersion(), sessionsDir }))
+  ipcMain.handle(IPC.appRevealSession, async (_event, sessionId: unknown) => {
+    const dir = sessionDir(sessionId)
+    if (dir) await shell.openPath(dir)
+  })
 }
 
 let quitting = false

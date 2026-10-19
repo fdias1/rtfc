@@ -23,8 +23,16 @@ export const IPC = {
   mediaAllowFile: 'media:allow-file',
   mediaEnsureMic: 'media:ensure-mic',
   mediaGetAccess: 'media:get-access',
-  mediaOpenPrivacy: 'media:open-privacy'
+  mediaOpenPrivacy: 'media:open-privacy',
+  mediaAllowSession: 'media:allow-session',
+  appInfo: 'app:info',
+  appRevealSession: 'app:reveal-session'
 } as const
+
+export interface AppInfo {
+  version: string
+  sessionsDir: string
+}
 
 /** API exposta ao renderer pelo preload em `window.rtfc`. */
 export interface RtfcBridge {
@@ -41,4 +49,9 @@ export interface RtfcBridge {
   ensureMicrophoneAccess(): Promise<boolean>
   getMediaAccess(kind: 'microphone' | 'screen'): Promise<MediaAccess>
   openPrivacySettings(kind: 'microphone' | 'screen'): Promise<void>
+  /** Libera para o player o arquivo original de uma sessão salva (sessões de arquivo). */
+  allowSessionMedia(sessionId: string): Promise<boolean>
+  getAppInfo(): Promise<AppInfo>
+  /** Abre a pasta da sessão no Finder/Explorer. */
+  revealSession(sessionId: string): Promise<void>
 }

@@ -1,17 +1,20 @@
 import type { ReactNode } from 'react'
 
 interface PanelProps {
-  title: string
+  title: ReactNode
   children: ReactNode
   className?: string
+  /** Conteúdo à direita do título (ações). */
+  aside?: ReactNode
 }
 
-export function Panel({ title, children, className = '' }: PanelProps): React.JSX.Element {
+export function Panel({ title, children, className = '', aside }: PanelProps): React.JSX.Element {
   return (
     <section className={`flex min-h-0 flex-col rounded-card border border-border bg-surface ${className}`}>
-      <h2 className="border-b border-border px-4 py-3 text-xs font-semibold tracking-wide text-text-muted uppercase">
-        {title}
-      </h2>
+      <div className="flex min-h-11 items-center justify-between gap-3 border-b border-border px-4 py-2">
+        <h2 className="min-w-0 text-xs font-semibold tracking-wide text-text-muted uppercase">{title}</h2>
+        {aside}
+      </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-4">{children}</div>
     </section>
   )

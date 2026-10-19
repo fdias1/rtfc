@@ -6,7 +6,15 @@
  * This interface was referenced by `RtfcProtocol`'s JSON-Schema
  * via the `definition` "ClientMessage".
  */
-export type ClientMessage = Ping | EchoRequest | SessionStart | SessionStop | TranscriptGet
+export type ClientMessage =
+  | Ping
+  | EchoRequest
+  | SessionStart
+  | SessionStop
+  | TranscriptGet
+  | SessionList
+  | SessionRename
+  | SessionDelete
 /**
  * This interface was referenced by `RtfcProtocol`'s JSON-Schema
  * via the `definition` "ServerMessage".
@@ -20,6 +28,8 @@ export type ServerMessage =
   | SessionProgress
   | SessionEnded
   | SessionUpdated
+  | SessionListResult
+  | SessionDeleted
   | TranscriptSegment
   | TranscriptPartial
   | TranscriptResult
@@ -92,6 +102,37 @@ export interface TranscriptGet {
   type: 'transcript.get'
 }
 /**
+ * Lista as sessões salvas, da mais recente para a mais antiga.
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SessionList".
+ */
+export interface SessionList {
+  id: string
+  type: 'session.list'
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SessionRename".
+ */
+export interface SessionRename {
+  id: string
+  session_id: string
+  title: string | null
+  type: 'session.rename'
+}
+/**
+ * Apaga a pasta da sessão e a transcrição. Nunca toca no arquivo original.
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SessionDelete".
+ */
+export interface SessionDelete {
+  id: string
+  session_id: string
+  type: 'session.delete'
+}
+/**
  * Enviada pelo servidor assim que a conexão é aceita.
  *
  * This interface was referenced by `RtfcProtocol`'s JSON-Schema
@@ -158,6 +199,7 @@ export interface SessionInfo {
   status: 'recording' | 'processing' | 'completed' | 'interrupted' | 'error'
   stt_engine: string | null
   stt_model: string | null
+  title: string | null
 }
 /**
  * Progresso: tempo de áudio já recebido (ao vivo) ou decodificado (arquivo).
@@ -185,14 +227,44 @@ export interface SessionEnded {
   type: 'session.ended'
 }
 /**
- * Metadados da sessão mudaram (por exemplo, o idioma foi detectado).
+ * Metadados da sessão mudaram (idioma detectado, título renomeado…).
+ *
+ * Tem `id` quando é a resposta a um `session.rename`.
  *
  * This interface was referenced by `RtfcProtocol`'s JSON-Schema
  * via the `definition` "SessionUpdated".
  */
 export interface SessionUpdated {
+  id: string | null
   session: SessionInfo
   type: 'session.updated'
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SessionListResult".
+ */
+export interface SessionListResult {
+  id: string
+  sessions: SessionListItem[]
+  type: 'session.list.result'
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SessionListItem".
+ */
+export interface SessionListItem {
+  segment_count: number
+  session: SessionInfo
+  size_bytes: number
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SessionDeleted".
+ */
+export interface SessionDeleted {
+  id: string
+  session_id: string
+  type: 'session.deleted'
 }
 /**
  * Um segmento (frase) confirmado. Não muda mais.

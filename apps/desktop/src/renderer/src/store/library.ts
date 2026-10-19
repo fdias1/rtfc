@@ -1,0 +1,84 @@
+// Sessões salvas e qual delas está aberta na tela.
+
+import { create } from 'zustand'
+import type { SessionInfo, SessionListItem } from '@rtfc/protocol'
+import { backend } from '../lib/connection'
+import { useTranscript } from './transcript'
+
+interface LibraryState {
+  items: SessionListItem[]
+  loading: boolean
+  error: string | null
+  /** Sessão exibida (transcrição + player) quando não há sessão em andamento. */
+  viewing: SessionInfo | null
+  refresh(): Promise<void>
+  open(sessionId: string): Promise<void>
+  /** Mostra uma sessão que acabou de terminar, sem recarregar a transcrição (já está na tela). */
+  showEnded(info: SessionInfo): void
+  rename(sessionId: string, title: string): Promise<void>
+  remove(sessionId: string): Promise<void>
+  close(): void
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
+export const useLibrary = create<LibraryState>((set, get) => ({
+  items: [],
+  loading: false,
+  error: null,
+  viewing: null,
+
+  async refresh() {
+    set({ loading: true })
+    try {
+      const reply = await backend.request({ type: 'session.list' })
+      if (reply.type === 'session.list.result') set({ items: reply.sessions, error: null })
+    } catch (err) {
+      set({ error: errorMessage(err) })
+    } finally {
+      set({ loading: false })
+    }
+  },
+
+  async open(sessionId) {
+    const item = get().items.find((i) => i.session.id === sessionId)
+    if (!item) return
+    // Sessões de arquivo tocam o arquivo original, que precisa ser liberado de novo após reiniciar o app.
+    await window.rtfc.allowSessionMedia(sessionId)
+    const reply = await backend.request({ type: 'transcript.get', session_id: sessionId })
+    if (reply.type !== 'transcript.result') return
+    useTranscript.getState().load(sessionId, reply.segments)
+    set({ viewing: item.session })
+  },
+
+  showEnded(info) {
+    set({ viewing: info })
+    void get().refresh()
+  },
+
+  async rename(sessionId, title) {
+    const reply = await backend.request({ type: 'session.rename', session_id: sessionId, title })
+    if (reply.type !== 'session.updated') return
+    set((s) => ({
+      items: s.items.map((i) => (i.session.id === sessionId ? { ...i, session: reply.session } : i)),
+      viewing: s.viewing?.id === sessionId ? reply.session : s.viewing
+    }))
+  },
+
+  async remove(sessionId) {
+    const reply = await backend.request({ type: 'session.delete', session_id: sessionId })
+    if (reply.type === 'error') throw new Error(reply.message)
+    set((s) => ({
+      items: s.items.filter((i) => i.session.id !== sessionId),
+      viewing: s.viewing?.id === sessionId ? null : s.viewing
+    }))
+    if (useTranscript.getState().sessionId === sessionId) useTranscript.getState().reset('')
+  },
+
+  close() {
+    set({ viewing: null })
+    useTranscript.getState().reset('')
+  }
+}))

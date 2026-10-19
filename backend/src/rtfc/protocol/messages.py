@@ -27,6 +27,8 @@ class SessionInfo(_Message):
     """Estado de uma sessão (também é o conteúdo de `session.json` na pasta da sessão)."""
 
     id: str
+    title: str | None = None
+    """Nome dado pelo usuário; a UI mostra a data e a fonte quando vazio."""
     source: SourceKind
     status: SessionStatus
     dir: str
@@ -114,10 +116,33 @@ class SessionEnded(_Message):
 
 
 class SessionUpdated(_Message):
-    """Metadados da sessão mudaram (por exemplo, o idioma foi detectado)."""
+    """Metadados da sessão mudaram (idioma detectado, título renomeado…).
+
+    Tem `id` quando é a resposta a um `session.rename`.
+    """
 
     type: Literal["session.updated"] = "session.updated"
+    id: str | None = None
     session: SessionInfo
+
+
+class SessionListItem(_Message):
+    session: SessionInfo
+    size_bytes: int
+    """Espaço da pasta da sessão (não conta o arquivo original das sessões de arquivo)."""
+    segment_count: int
+
+
+class SessionListResult(_Message):
+    type: Literal["session.list.result"] = "session.list.result"
+    id: str
+    sessions: list[SessionListItem]
+
+
+class SessionDeleted(_Message):
+    type: Literal["session.deleted"] = "session.deleted"
+    id: str
+    session_id: str
 
 
 class TranscriptSegment(_Message):
@@ -167,6 +192,8 @@ ServerMessage = Annotated[
     | SessionProgress
     | SessionEnded
     | SessionUpdated
+    | SessionListResult
+    | SessionDeleted
     | TranscriptSegment
     | TranscriptPartial
     | TranscriptResult
@@ -224,7 +251,38 @@ class TranscriptGet(_Message):
     session_id: str
 
 
-AnyClientMessage = Ping | EchoRequest | SessionStart | SessionStop | TranscriptGet
+class SessionList(_Message):
+    """Lista as sessões salvas, da mais recente para a mais antiga."""
+
+    type: Literal["session.list"] = "session.list"
+    id: str
+
+
+class SessionRename(_Message):
+    type: Literal["session.rename"] = "session.rename"
+    id: str
+    session_id: str
+    title: str | None = Field(default=None, max_length=200)
+
+
+class SessionDelete(_Message):
+    """Apaga a pasta da sessão e a transcrição. Nunca toca no arquivo original."""
+
+    type: Literal["session.delete"] = "session.delete"
+    id: str
+    session_id: str
+
+
+AnyClientMessage = (
+    Ping
+    | EchoRequest
+    | SessionStart
+    | SessionStop
+    | TranscriptGet
+    | SessionList
+    | SessionRename
+    | SessionDelete
+)
 ClientMessage = Annotated[AnyClientMessage, Field(discriminator="type")]
 
 _client_adapter: TypeAdapter[AnyClientMessage] = TypeAdapter(ClientMessage)

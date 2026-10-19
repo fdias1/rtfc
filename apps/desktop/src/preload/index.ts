@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
-import { IPC, type MediaAccess, type RtfcBridge, type SidecarStatus } from '@shared/ipc'
+import { IPC, type AppInfo, type MediaAccess, type RtfcBridge, type SidecarStatus } from '@shared/ipc'
 
 const bridge: RtfcBridge = {
   platform: process.platform,
@@ -19,7 +19,10 @@ const bridge: RtfcBridge = {
   },
   ensureMicrophoneAccess: () => ipcRenderer.invoke(IPC.mediaEnsureMic) as Promise<boolean>,
   getMediaAccess: (kind) => ipcRenderer.invoke(IPC.mediaGetAccess, kind) as Promise<MediaAccess>,
-  openPrivacySettings: (kind) => ipcRenderer.invoke(IPC.mediaOpenPrivacy, kind) as Promise<void>
+  openPrivacySettings: (kind) => ipcRenderer.invoke(IPC.mediaOpenPrivacy, kind) as Promise<void>,
+  allowSessionMedia: (sessionId) => ipcRenderer.invoke(IPC.mediaAllowSession, sessionId) as Promise<boolean>,
+  getAppInfo: () => ipcRenderer.invoke(IPC.appInfo) as Promise<AppInfo>,
+  revealSession: (sessionId) => ipcRenderer.invoke(IPC.appRevealSession, sessionId) as Promise<void>
 }
 
 contextBridge.exposeInMainWorld('rtfc', bridge)

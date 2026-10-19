@@ -91,5 +91,16 @@ class TranscriptStore:
             out.append(StoredSegment(idx, start, end, text, words, speaker))
         return out
 
+    def segment_count(self, session_id: str) -> int:
+        row = self._db.execute(
+            "SELECT COUNT(*) FROM segment WHERE session_id = ?", (session_id,)
+        ).fetchone()
+        return int(row[0])
+
+    def delete_session(self, session_id: str) -> None:
+        with self._db:
+            # As palavras saem junto (ON DELETE CASCADE).
+            self._db.execute("DELETE FROM segment WHERE session_id = ?", (session_id,))
+
     def close(self) -> None:
         self._db.close()
