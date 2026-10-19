@@ -56,6 +56,11 @@ class TranscriptStore:
         self._db.execute("PRAGMA foreign_keys=ON")
         self._db.executescript(SCHEMA)
 
+    @property
+    def db(self) -> sqlite3.Connection:
+        """Conexão compartilhada com as outras tabelas (afirmações, checagens)."""
+        return self._db
+
     def add_segment(self, session_id: str, seg: StoredSegment) -> None:
         with self._db:
             cur = self._db.execute(

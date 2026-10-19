@@ -20,7 +20,11 @@ from pydantic import BaseModel
 from rtfc.audio import ffmpeg
 from rtfc.audio.ring_buffer import PcmRingBuffer
 from rtfc.audio.sources import AudioSourceError, FileDecoder, LiveRecorder
+from rtfc.claims import Anchor, ClaimPipeline, manual_claim, to_claim_data
+from rtfc.config import SecretStore, SettingsStore
+from rtfc.llm import LlmClient, LlmError
 from rtfc.protocol import (
+    ClaimData,
     SessionEnded,
     SessionInfo,
     SessionListItem,
@@ -31,7 +35,14 @@ from rtfc.protocol import (
     TranscriptSegmentData,
     TranscriptWord,
 )
-from rtfc.storage import StoredSegment, StoredWord, SubtitleWriter, TranscriptStore
+from rtfc.storage import (
+    ClaimStore,
+    StoredClaim,
+    StoredSegment,
+    StoredWord,
+    SubtitleWriter,
+    TranscriptStore,
+)
 from rtfc.stt.base import pcm16_to_float32
 from rtfc.stt.files import transcribe_audio
 from rtfc.stt.live import LiveTranscriber
@@ -78,6 +89,7 @@ class Session:
         self._store = store
         self.recorder: LiveRecorder | None = None
         self.transcriber: LiveTranscriber | None = None
+        self.claims: ClaimPipeline | None = None
         self.task: asyncio.Task[None] | None = None
         self.subtitles = SubtitleWriter(Path(info.dir))
         self.segment_count = 0
@@ -137,6 +149,8 @@ class Session:
                 session_id=self.id, segment=to_segment_data(stored), latency_ms=latency_ms
             )
         )
+        if self.claims:
+            self.claims.submit(stored)
 
     async def on_partial(self, start_s: float, confirmed: str, tentative: str) -> None:
         await self.emit(
@@ -160,11 +174,35 @@ class SessionManager:
         sessions_dir: Path | None = None,
         stt: SttService | None = None,
         store: TranscriptStore | None = None,
+        settings: SettingsStore | None = None,
+        secrets: SecretStore | None = None,
     ) -> None:
         self.sessions_dir = sessions_dir or default_sessions_dir()
         self.stt = stt
         self.store = store
+        self.settings = settings
+        self.secrets = secrets
+        self.claim_store = ClaimStore(store.db) if store else None
         self._sessions: dict[str, Session] = {}
+
+    def extractor_client(self) -> LlmClient:
+        if not (self.settings and self.secrets):
+            raise SessionError("extração de afirmações não configurada")
+        return LlmClient(self.settings.settings.extractor, self.secrets)
+
+    def _attach_claims(self, session: Session) -> None:
+        if not (self.settings and self.secrets and self.claim_store):
+            return
+        if not self.settings.settings.auto_extract:
+            return
+        session.claims = ClaimPipeline(
+            session.id,
+            client_factory=self.extractor_client,
+            store=self.claim_store,
+            emit=session.emit,
+            language=lambda: session.info.language,
+        )
+        session.claims.start()
 
     def get(self, session_id: str) -> Session:
         try:
@@ -225,6 +263,7 @@ class SessionManager:
                 on_language=session.on_language,
             )
             session.task = asyncio.create_task(session.transcriber.run())
+            self._attach_claims(session)
         session.save()
         self._sessions[session.id] = session
         return session
@@ -255,6 +294,8 @@ class SessionManager:
         session = Session(info, emit, self.store)
         session.save()
         self._sessions[session.id] = session
+        if self.stt:
+            self._attach_claims(session)
         session.task = asyncio.create_task(self._run_file(session, path, media.duration_ms))
         return session
 
@@ -282,6 +323,8 @@ class SessionManager:
                     on_language=session.on_language,
                 )
                 session.info.language = language
+                if session.claims:
+                    await session.claims.close()
             else:
                 await progress(duration)
         except asyncio.CancelledError:
@@ -303,10 +346,15 @@ class SessionManager:
                 session.transcriber.stop()
                 with contextlib.suppress(Exception):
                     await session.task
+            if session.claims:
+                # As últimas frases ainda passam pelo extrator.
+                await session.claims.close()
         elif session.task is not None and not session.task.done():
             session.task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await session.task
+            if session.claims:
+                session.claims.cancel()
         return await self._finish(session, "stopped", request_id=request_id, notify=False)
 
     async def _finish(
@@ -324,6 +372,15 @@ class SessionManager:
             lat = sorted(session.latencies_ms)
             log.info(
                 "sessão %s: %d segmentos, latência p50=%dms p90=%dms",
+                session.id,
+                len(lat),
+                lat[len(lat) // 2],
+                lat[int(0.9 * (len(lat) - 1))],
+            )
+        if session.claims and session.claims.latencies_ms:
+            lat = sorted(session.claims.latencies_ms)
+            log.info(
+                "sessão %s: %d afirmações, latência da extração p50=%dms p90=%dms",
                 session.id,
                 len(lat),
                 lat[len(lat) // 2],
@@ -403,6 +460,61 @@ class SessionManager:
         await asyncio.to_thread(shutil.rmtree, path)
         if self.store:
             self.store.delete_session(session_id)
+        if self.claim_store:
+            self.claim_store.delete_session(session_id)
+
+    # --- Afirmações -------------------------------------------------------------
+
+    def claims(self, session_id: str) -> list[ClaimData]:
+        if not self.claim_store:
+            return []
+        return [to_claim_data(c) for c in self.claim_store.for_session(session_id)]
+
+    def _segments(self, session_id: str) -> list[StoredSegment]:
+        active = self._sessions.get(session_id)
+        if active and active.claims:
+            return active.claims.segments
+        return self.store.segments(session_id) if self.store else []
+
+    async def manual_claim(
+        self, session_id: str, from_seg: int, from_word: int, to_seg: int, to_word: int
+    ) -> StoredClaim:
+        if not self.claim_store:
+            raise SessionError("afirmações indisponíveis")
+        info = self.load_info(session_id)
+        segments = self._segments(session_id)
+        by_index = {s.index: s for s in segments}
+        first, last = by_index.get(from_seg), by_index.get(to_seg)
+        if not first or not last or (from_seg, from_word) > (to_seg, to_word):
+            raise SessionError("trecho inválido")
+        try:
+            start_ms = first.words[from_word].start_ms
+            end_ms = last.words[to_word].end_ms
+        except IndexError:
+            raise SessionError("trecho inválido") from None
+        where = Anchor(from_seg, from_word, to_seg, to_word, start_ms, end_ms)
+        try:
+            return await manual_claim(
+                session_id,
+                segments,
+                where,
+                client=self.extractor_client(),
+                store=self.claim_store,
+                language=info.language,
+                when=datetime.fromisoformat(info.started_at).date(),
+            )
+        except (LlmError, ValueError) as exc:
+            raise SessionError(f"não foi possível preparar o trecho: {exc}") from exc
+
+    def discard_claim(self, claim_id: str) -> StoredClaim:
+        if not self.claim_store:
+            raise SessionError("afirmações indisponíveis")
+        claim = self.claim_store.get(claim_id)
+        if claim is None:
+            raise SessionError(f"afirmação desconhecida: {claim_id}")
+        claim = claim.with_status("discarded")
+        self.claim_store.upsert(claim)
+        return claim
 
     def transcript(self, session_id: str) -> list[TranscriptSegmentData]:
         if not self.store:

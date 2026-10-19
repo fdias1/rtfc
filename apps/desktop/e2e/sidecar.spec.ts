@@ -12,10 +12,11 @@ import type {} from '../src/preload/index.d'
 test('backend sobe com o app e se recupera depois de morrer', async () => {
   const app = await electron.launch({
     args: [resolve(__dirname, '..')],
-    env: { ...process.env, ...TEST_ENV, RTFC_SESSIONS_DIR: mkdtempSync(join(tmpdir(), 'rtfc-e2e-')) } as Record<
-      string,
-      string
-    >
+    env: {
+      ...process.env,
+      ...TEST_ENV,
+      RTFC_SESSIONS_DIR: join(mkdtempSync(join(tmpdir(), 'rtfc-e2e-')), 'sessions')
+    } as Record<string, string>
   })
   try {
     const win = await app.firstWindow()

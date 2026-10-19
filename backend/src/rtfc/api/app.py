@@ -18,15 +18,27 @@ from pydantic import BaseModel, ValidationError
 from starlette.websockets import WebSocketState
 
 from rtfc import __version__
+from rtfc.api import llm_settings
 from rtfc.audio.sources import AudioSourceError
+from rtfc.claims import to_claim_data
+from rtfc.config import KeyringSecretStore, LlmRole, Settings, SettingsStore
+from rtfc.llm.fake import fake_enabled
 from rtfc.protocol import (
     PROTOCOL_VERSION,
+    ClaimDiscard,
+    ClaimManual,
+    ClaimsGet,
+    ClaimsResult,
+    ClaimUpdated,
     EchoReply,
     EchoRequest,
     ErrorMessage,
     Hello,
+    LlmModels,
+    LlmTest,
     Ping,
     Pong,
+    SecretSet,
     SessionDelete,
     SessionDeleted,
     SessionEnded,
@@ -37,6 +49,8 @@ from rtfc.protocol import (
     SessionStarted,
     SessionStop,
     SessionUpdated,
+    SettingsGet,
+    SettingsSet,
     SttStatusMessage,
     TranscriptGet,
     TranscriptResult,
@@ -106,8 +120,20 @@ def create_app(token: str, sessions: SessionManager | None = None) -> FastAPI:
 
 def default_manager() -> SessionManager:
     sessions_dir = default_sessions_dir()
-    store = TranscriptStore(sessions_dir.parent / "rtfc.sqlite")
-    return SessionManager(sessions_dir, stt=SttService(), store=store)
+    data_dir = sessions_dir.parent
+    secret_store = KeyringSecretStore()
+    settings = SettingsStore(data_dir / "settings.json", secret_store)
+    if fake_enabled() and not settings.path.exists():
+        # E2E: extração determinística, sem rede nem modelo local.
+        fake = LlmRole(provider="fake", model="fake")
+        settings.save(Settings(extractor=fake, checker=fake))
+    return SessionManager(
+        sessions_dir,
+        stt=SttService(),
+        store=TranscriptStore(data_dir / "rtfc.sqlite"),
+        settings=settings,
+        secrets=secret_store,
+    )
 
 
 async def _preload(stt: SttService) -> object:
@@ -214,8 +240,47 @@ class _Connection:
                         session_id=msg.session_id,
                         segments=self.manager.transcript(msg.session_id),
                     )
+                case ClaimsGet():
+                    return ClaimsResult(
+                        id=msg.id,
+                        session_id=msg.session_id,
+                        claims=self.manager.claims(msg.session_id),
+                    )
+                case ClaimManual():
+                    claim = await self.manager.manual_claim(
+                        msg.session_id, msg.from_segment, msg.from_word, msg.to_segment, msg.to_word
+                    )
+                    return ClaimUpdated(id=msg.id, claim=to_claim_data(claim))
+                case ClaimDiscard():
+                    claim = self.manager.discard_claim(msg.claim_id)
+                    return ClaimUpdated(id=msg.id, claim=to_claim_data(claim))
+                case SettingsGet() | SettingsSet() | SecretSet() | LlmTest() | LlmModels():
+                    return await self._llm_settings(msg)
         except SessionError as exc:
             return ErrorMessage(id=msg.id, code="session_error", message=str(exc))
+        except ValueError as exc:
+            return ErrorMessage(id=msg.id, code="invalid_request", message=str(exc))
+        return None
+
+    async def _llm_settings(
+        self, msg: SettingsGet | SettingsSet | SecretSet | LlmTest | LlmModels
+    ) -> BaseModel:
+        store, secrets = self.manager.settings, self.manager.secrets
+        if store is None or secrets is None:
+            return ErrorMessage(
+                id=msg.id, code="unavailable", message="configurações indisponíveis"
+            )
+        match msg:
+            case SettingsGet():
+                return llm_settings.settings_result(msg.id, store, secrets)
+            case SettingsSet():
+                return llm_settings.set_settings(msg, store, secrets)
+            case SecretSet():
+                return llm_settings.set_secret(msg, store, secrets)
+            case LlmTest():
+                return await llm_settings.test_llm(msg, store, secrets)
+            case LlmModels():
+                return await llm_settings.models(msg, secrets)
 
     async def _start(self, msg: SessionStart) -> SessionStarted:
         if msg.source == "file":

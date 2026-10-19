@@ -1,10 +1,13 @@
-import { memo, useEffect, useRef, useState } from 'react'
-import { SearchCheck } from 'lucide-react'
-import type { TranscriptSegmentData } from '@rtfc/protocol'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { LoaderCircle, SearchCheck } from 'lucide-react'
+import type { ClaimData, TranscriptSegmentData } from '@rtfc/protocol'
 import { formatDuration } from '../lib/format'
 import { selectionFromDom } from '../lib/selection'
+import { claimCovers, useClaims, visibleClaims } from '../store/claims'
 import { usePlayer } from '../store/player'
 import { useTranscript } from '../store/transcript'
+
+const NO_CLAIMS: ClaimData[] = []
 
 /** Distância do fim (px) abaixo da qual o autoscroll continua ligado. */
 const STICKY_PX = 48
@@ -15,9 +18,21 @@ interface SegmentProps {
   activeWord: number | null
   seekable: boolean
   onSeek(ms: number): void
+  /** Afirmações que tocam este segmento. */
+  claims: ClaimData[]
+  focusedClaim: string | null
+  onFocusClaim(id: string): void
 }
 
-const Segment = memo(function Segment({ segment, activeWord, seekable, onSeek }: SegmentProps) {
+const Segment = memo(function Segment({
+  segment,
+  activeWord,
+  seekable,
+  onSeek,
+  claims,
+  focusedClaim,
+  onFocusClaim
+}: SegmentProps) {
   const active = activeWord !== null
   return (
     <li
@@ -45,18 +60,49 @@ const Segment = memo(function Segment({ segment, activeWord, seekable, onSeek }:
         }}
       >
         {segment.words.length > 0
-          ? segment.words.map((w, i) => (
-              <span key={i}>
-                {i > 0 && ' '}
-                <span
-                  data-seg={segment.index}
-                  data-word={i}
-                  className={i === activeWord ? 'rounded-sm bg-primary/15 text-primary-strong' : undefined}
-                >
-                  {w.text}
+          ? segment.words.map((w, i) => {
+              const claim = claims.find((c) => claimCovers(c, segment.index, i))
+              const classes = [
+                i === activeWord ? 'rounded-sm bg-primary/15 text-primary-strong' : '',
+                claim ? 'underline decoration-primary/45 decoration-2 underline-offset-[5px] cursor-pointer' : '',
+                claim && claim.id === focusedClaim ? 'bg-primary/10 decoration-primary' : ''
+              ].join(' ')
+              // O espaço antes da palavra herda o sublinhado quando a anterior é da mesma afirmação.
+              const joined = claim !== undefined && i > 0 && claimCovers(claim, segment.index, i - 1)
+              return (
+                <span key={i}>
+                  {i > 0 &&
+                    (joined ? (
+                      <span
+                        className={`underline decoration-primary/45 decoration-2 underline-offset-[5px] ${
+                          claim.id === focusedClaim ? 'bg-primary/10 decoration-primary' : ''
+                        }`}
+                      >
+                        {' '}
+                      </span>
+                    ) : (
+                      ' '
+                    ))}
+                  <span
+                    data-seg={segment.index}
+                    data-word={i}
+                    data-claim={claim?.id}
+                    className={classes.trim() || undefined}
+                    onClick={
+                      claim
+                        ? (e) => {
+                            if (window.getSelection()?.isCollapsed === false) return
+                            e.stopPropagation()
+                            onFocusClaim(claim.id)
+                          }
+                        : undefined
+                    }
+                  >
+                    {w.text}
+                  </span>
                 </span>
-              </span>
-            ))
+              )
+            })
           : segment.text}
       </p>
     </li>
@@ -71,23 +117,39 @@ function activeWordIndex(seg: TranscriptSegmentData, ms: number): number | null 
 
 function SelectionMenu({ top }: { top: number }): React.JSX.Element {
   const selection = useTranscript((s) => s.selection)!
+  const sessionId = useTranscript((s) => s.sessionId)
+  const setSelection = useTranscript((s) => s.setSelection)
+  const checkSelection = useClaims((s) => s.checkSelection)
+  const submitting = useClaims((s) => s.submitting)
+
+  const verify = async (): Promise<void> => {
+    if (!sessionId) return
+    const claim = await checkSelection(sessionId, selection)
+    if (claim) {
+      window.getSelection()?.removeAllRanges()
+      setSelection(null)
+    }
+  }
+
   return (
     <div
       className="absolute right-4 z-10 flex items-center gap-2 rounded-md border border-border bg-surface px-2 py-1.5 shadow-md"
       style={{ top }}
       data-testid="selection-menu"
       onMouseDown={(e) => e.preventDefault()}
+      onMouseUp={(e) => e.stopPropagation()}
     >
       <span className="font-mono text-[11px] text-text-muted">
         {formatDuration(selection.startMs)}–{formatDuration(selection.endMs)}
       </span>
       <button
         type="button"
-        disabled
-        title="A checagem manual de trechos chega com a extração de afirmações (M5)."
-        className="flex items-center gap-1.5 rounded bg-primary px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
+        disabled={!sessionId || submitting}
+        onClick={() => void verify()}
+        title="Transformar este trecho numa afirmação para checar"
+        className="flex items-center gap-1.5 rounded bg-primary px-2 py-1 text-xs font-medium text-white hover:bg-primary-strong disabled:opacity-50"
       >
-        <SearchCheck size={13} />
+        {submitting ? <LoaderCircle size={13} className="animate-spin" /> : <SearchCheck size={13} />}
         Verificar trecho
       </button>
     </div>
@@ -103,6 +165,18 @@ export function TranscriptView({ seekable }: { seekable: boolean }): React.JSX.E
   const currentMs = usePlayer((s) => (seekable ? s.currentMs : -1))
   const playing = usePlayer((s) => s.playing)
   const seek = usePlayer((s) => s.seek)
+  const claimsById = useClaims((s) => s.byId)
+  const focusedClaim = useClaims((s) => s.focusedId)
+  const focusClaim = useClaims((s) => s.focus)
+  // Mapa segmento → afirmações, recalculado só quando as afirmações mudam: o player re-renderiza
+  // esta view a cada quadro, e cada Segment (memo) só deve re-renderizar se algo dele mudou.
+  const claimsBySegment = useMemo(() => {
+    const map = new Map<number, ClaimData[]>()
+    for (const c of visibleClaims(claimsById)) {
+      for (let i = c.from_segment; i <= c.to_segment; i++) map.set(i, [...(map.get(i) ?? []), c])
+    }
+    return map
+  }, [claimsById])
   const scroller = useRef<HTMLDivElement>(null)
   const [sticky, setSticky] = useState(true)
   const [menuTop, setMenuTop] = useState(0)
@@ -152,6 +226,9 @@ export function TranscriptView({ seekable }: { seekable: boolean }): React.JSX.E
             activeWord={seekable ? activeWordIndex(seg, currentMs) : null}
             seekable={seekable}
             onSeek={seek}
+            claims={claimsBySegment.get(seg.index) ?? NO_CLAIMS}
+            focusedClaim={focusedClaim}
+            onFocusClaim={focusClaim}
           />
         ))}
         {partial && (

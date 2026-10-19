@@ -1,5 +1,5 @@
 // Aceite do M3: reabrir uma sessão salva, clicar numa frase e ouvir o ponto exato;
-// selecionar um trecho mostra o menu de ação; renomear e apagar.
+// selecionar um trecho mostra o menu de ação ("Verificar trecho"); renomear e apagar.
 
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -53,7 +53,7 @@ test('sessão salva reabre com player sincronizado, seleção, renomear e apagar
     await expect(third).toHaveAttribute('data-active', 'true', { timeout: 5_000 })
     await audio.evaluate((a: HTMLAudioElement) => a.pause())
 
-    // Selecionar palavras da 2ª frase mostra o menu de ação (ainda inativo).
+    // Selecionar palavras da 2ª frase mostra o menu de ação.
     await win.evaluate(() => {
       const words = document.querySelectorAll('[data-seg="1"][data-word]')
       const range = document.createRange()
@@ -66,7 +66,7 @@ test('sessão salva reabre com player sincronizado, seleção, renomear e apagar
     })
     const menu = win.getByTestId('selection-menu')
     await expect(menu).toBeVisible()
-    await expect(menu.getByRole('button', { name: 'Verificar trecho' })).toBeDisabled()
+    await expect(menu.getByRole('button', { name: 'Verificar trecho' })).toBeEnabled()
 
     // Renomear.
     await win.getByTestId('session-row').first().hover()

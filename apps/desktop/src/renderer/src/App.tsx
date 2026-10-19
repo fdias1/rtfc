@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { FileAudio, ListChecks, ScrollText, Settings, X } from 'lucide-react'
+import { FileAudio, ScrollText, Settings, X } from 'lucide-react'
+import { ChecksPanel } from './components/ChecksPanel'
 import { ConnectionBadge } from './components/ConnectionBadge'
 import { MediaPlayer } from './components/MediaPlayer'
 import { EmptyState, Panel } from './components/Panel'
@@ -84,6 +85,18 @@ function TranscriptPanel(): React.JSX.Element {
           )}
         </div>
       </div>
+    </Panel>
+  )
+}
+
+function ChecksColumn({ onOpenSettings }: { onOpenSettings(): void }): React.JSX.Element {
+  const active = useSession((s) => s.active)
+  const viewing = useLibrary((s) => s.viewing)
+  const shown = active?.info ?? viewing
+  const seekable = shown !== null && (shown.source === 'file' || !active)
+  return (
+    <Panel title="Checagens">
+      <ChecksPanel seekable={seekable} hasSession={shown !== null} onOpenSettings={onOpenSettings} />
     </Panel>
   )
 }
@@ -179,13 +192,7 @@ export function App(): React.JSX.Element {
 
         <TranscriptPanel />
 
-        <Panel title="Checagens">
-          <EmptyState
-            icon={<ListChecks size={32} strokeWidth={1.25} />}
-            title="Nenhuma afirmação ainda"
-            hint="As afirmações factuais detectadas aparecem aqui com o veredicto e as fontes."
-          />
-        </Panel>
+        <ChecksColumn onOpenSettings={() => setSettingsOpen(true)} />
       </main>
 
       <footer className="border-t border-border bg-surface px-6 py-2 text-[11px] text-text-muted">

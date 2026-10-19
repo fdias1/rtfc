@@ -1,0 +1,21 @@
+{
+  "description": "Afirmações esperadas no discurso de eval/stt/reference.txt. Uma esperada conta como encontrada se alguma afirmação extraída contém todas as palavras-chave (sem acento, sem caixa). Os 'negatives' são opiniões/promessas/apelos: extrair algo que case com eles conta como falso positivo.",
+  "expected": [
+    {"id": "ensino-medio", "keywords": ["metade", "ensino medio"]},
+    {"id": "investiu-saude", "keywords": ["investiu", "saude"]},
+    {"id": "filas-cirurgia", "keywords": ["filas", "cirurgia"]},
+    {"id": "inflacao", "keywords": ["inflacao", "trimestre"]},
+    {"id": "desemprego-jovens", "keywords": ["desemprego", "jovens"]},
+    {"id": "industria-china", "keywords": ["industria", "china"]},
+    {"id": "stf", "keywords": ["supremo", "constitucional"]},
+    {"id": "congresso", "keywords": ["congresso", "maioria"]},
+    {"id": "desmatamento", "keywords": ["desmatamento"]}
+  ],
+  "negatives": [
+    {"id": "inaceitavel", "keywords": ["inaceitavel"]},
+    {"id": "creches", "keywords": ["creches"]},
+    {"id": "respeito", "keywords": ["respeito"]},
+    {"id": "voto", "keywords": ["voto"]},
+    {"id": "boa-noite", "keywords": ["boa noite"]}
+  ]
+}

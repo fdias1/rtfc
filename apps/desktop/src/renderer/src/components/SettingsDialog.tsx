@@ -1,8 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import type { SettingsData } from '@rtfc/protocol'
 import type { AppInfo } from '@shared/ipc'
+import { useSettings } from '../store/settings'
 import { useSession, type LanguageChoice } from '../store/session'
 import { useTranscript } from '../store/transcript'
 import { Dialog, buttonClass } from './Dialog'
+import { LlmSettings } from './LlmSettings'
 
 function Section({ title, children }: { title: string; children: ReactNode }): React.JSX.Element {
   return (
@@ -22,16 +25,35 @@ function Row({ label, children }: { label: string; children: ReactNode }): React
   )
 }
 
-/** Esqueleto das configurações (M3). Modelos de IA e busca entram no M5/M6. */
+/** Configurações gerais, de transcrição e dos modelos de IA. */
 export function SettingsDialog({ onClose }: { onClose(): void }): React.JSX.Element {
   const language = useSession((s) => s.language)
   const setLanguage = useSession((s) => s.setLanguage)
   const stt = useTranscript((s) => s.stt)
   const [info, setInfo] = useState<AppInfo | null>(null)
+  const saved = useSettings((s) => s.settings)
+  const load = useSettings((s) => s.load)
+  const save = useSettings((s) => s.save)
+  const error = useSettings((s) => s.error)
+  const [draft, setDraft] = useState<SettingsData | null>(null)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     void window.rtfc.getAppInfo().then(setInfo)
-  }, [])
+    void load()
+  }, [load])
+
+  // O rascunho começa igual ao salvo (e acompanha o salvo até ser editado).
+  const current = draft ?? saved
+  const dirty = draft !== null && JSON.stringify(draft) !== JSON.stringify(saved)
+
+  const onSave = async (): Promise<void> => {
+    if (!draft) return onClose()
+    setSaving(true)
+    const ok = await save(draft)
+    setSaving(false)
+    if (ok) onClose()
+  }
 
   return (
     <Dialog
@@ -39,9 +61,23 @@ export function SettingsDialog({ onClose }: { onClose(): void }): React.JSX.Elem
       onClose={onClose}
       width="max-w-2xl"
       footer={
-        <button type="button" className={buttonClass.primary} onClick={onClose}>
-          Fechar
-        </button>
+        <>
+          {error && <span className="mr-auto self-center text-xs text-verdict-false">{error}</span>}
+          <button type="button" className={buttonClass.secondary} onClick={onClose}>
+            {dirty ? 'Descartar' : 'Fechar'}
+          </button>
+          {dirty && (
+            <button
+              type="button"
+              className={buttonClass.primary}
+              onClick={() => void onSave()}
+              disabled={saving}
+              data-testid="save-settings"
+            >
+              {saving ? 'Salvando…' : 'Salvar'}
+            </button>
+          )}
+        </>
       }
     >
       <div data-testid="settings">
@@ -73,11 +109,12 @@ export function SettingsDialog({ onClose }: { onClose(): void }): React.JSX.Elem
           </p>
         </Section>
 
-        <Section title="Modelos de IA e busca">
-          <p className="text-xs text-text-muted">
-            Provedores de LLM (OpenAI, Gemini, Claude, Ollama…), chaves de API e busca chegam com a extração e a
-            checagem de afirmações.
-          </p>
+        <Section title="Modelos de IA">
+          {current ? (
+            <LlmSettings draft={current} onChange={setDraft} />
+          ) : (
+            <p className="text-xs text-text-muted">Carregando…</p>
+          )}
         </Section>
 
         <Section title="Sobre">

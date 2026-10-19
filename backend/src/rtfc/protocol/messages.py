@@ -61,6 +61,52 @@ class TranscriptSegmentData(_Message):
     speaker: str | None = None
 
 
+ClaimStatus = Literal["queued", "checking", "done", "cancelled", "discarded", "error"]
+
+
+class ClaimData(_Message):
+    """Afirmação factual verificável, ancorada num trecho da transcrição (palavras inclusivas)."""
+
+    id: str
+    session_id: str
+    origin: Literal["auto", "manual"]
+    text: str
+    """Afirmação normalizada (autocontida)."""
+    source_text: str
+    """Trecho como foi dito."""
+    from_segment: int
+    from_word: int
+    to_segment: int
+    to_word: int
+    start_ms: int
+    end_ms: int
+    status: ClaimStatus
+    dedup_of: str | None = None
+    """Id da afirmação equivalente já registrada nesta sessão (o resultado é reaproveitado)."""
+    speaker: str | None = None
+
+
+class LlmRoleData(_Message):
+    provider: str
+    model: str
+    base_url: str | None = None
+
+
+class SettingsData(_Message):
+    extractor: LlmRoleData
+    checker: LlmRoleData
+    auto_extract: bool
+
+
+class ProviderData(_Message):
+    id: str
+    label: str
+    needs_key: bool
+    has_key: bool
+    default_base_url: str | None = None
+    suggested_models: list[str]
+
+
 # --- Servidor → cliente ------------------------------------------------------
 
 
@@ -172,6 +218,54 @@ class TranscriptResult(_Message):
     segments: list[TranscriptSegmentData]
 
 
+class ClaimUpdated(_Message):
+    """Afirmação nova ou com estado alterado. Tem `id` quando responde a claim.manual/discard."""
+
+    type: Literal["claim.updated"] = "claim.updated"
+    id: str | None = None
+    claim: ClaimData
+
+
+class ClaimsResult(_Message):
+    type: Literal["claims.result"] = "claims.result"
+    id: str
+    session_id: str
+    claims: list[ClaimData]
+
+
+class ExtractorStatus(_Message):
+    """Estado do extrator de afirmações de uma sessão (por exemplo, LLM fora do ar)."""
+
+    type: Literal["extractor.status"] = "extractor.status"
+    session_id: str
+    state: Literal["idle", "running", "error", "disabled"]
+    message: str | None = None
+
+
+class SettingsResult(_Message):
+    type: Literal["settings.result"] = "settings.result"
+    id: str
+    settings: SettingsData
+    providers: list[ProviderData]
+
+
+class LlmTestResult(_Message):
+    type: Literal["llm.test.result"] = "llm.test.result"
+    id: str
+    ok: bool
+    model: str
+    latency_ms: int | None = None
+    message: str | None = None
+
+
+class LlmModelsResult(_Message):
+    type: Literal["llm.models.result"] = "llm.models.result"
+    id: str
+    provider: str
+    models: list[str]
+    message: str | None = None
+
+
 class SttStatusMessage(_Message):
     """Estado do modelo de transcrição (download, carregamento, pronto, erro)."""
 
@@ -197,7 +291,13 @@ ServerMessage = Annotated[
     | TranscriptSegment
     | TranscriptPartial
     | TranscriptResult
-    | SttStatusMessage,
+    | SttStatusMessage
+    | ClaimUpdated
+    | ClaimsResult
+    | ExtractorStatus
+    | SettingsResult
+    | LlmTestResult
+    | LlmModelsResult,
     Field(discriminator="type"),
 ]
 
@@ -273,6 +373,66 @@ class SessionDelete(_Message):
     session_id: str
 
 
+class ClaimsGet(_Message):
+    type: Literal["claims.get"] = "claims.get"
+    id: str
+    session_id: str
+
+
+class ClaimManual(_Message):
+    """Checagem de um trecho escolhido pelo usuário (seleção na transcrição)."""
+
+    type: Literal["claim.manual"] = "claim.manual"
+    id: str
+    session_id: str
+    from_segment: int
+    from_word: int
+    to_segment: int
+    to_word: int
+
+
+class ClaimDiscard(_Message):
+    type: Literal["claim.discard"] = "claim.discard"
+    id: str
+    claim_id: str
+
+
+class SettingsGet(_Message):
+    type: Literal["settings.get"] = "settings.get"
+    id: str
+
+
+class SettingsSet(_Message):
+    type: Literal["settings.set"] = "settings.set"
+    id: str
+    settings: SettingsData
+
+
+class SecretSet(_Message):
+    """Grava (ou apaga, com `value=None`) a chave de API de um provedor no cofre do SO."""
+
+    type: Literal["secret.set"] = "secret.set"
+    id: str
+    provider: str
+    value: str | None = Field(default=None, max_length=4096)
+
+
+class LlmTest(_Message):
+    """Testa a conexão do papel `role` com a configuração dada (ou a salva)."""
+
+    type: Literal["llm.test"] = "llm.test"
+    id: str
+    role: Literal["extractor", "checker"]
+    config: LlmRoleData | None = None
+
+
+class LlmModels(_Message):
+    type: Literal["llm.models"] = "llm.models"
+    id: str
+    provider: str
+    base_url: str | None = None
+
+
 AnyClientMessage = (
     Ping
     | EchoRequest
@@ -282,6 +442,14 @@ AnyClientMessage = (
     | SessionList
     | SessionRename
     | SessionDelete
+    | ClaimsGet
+    | ClaimManual
+    | ClaimDiscard
+    | SettingsGet
+    | SettingsSet
+    | SecretSet
+    | LlmTest
+    | LlmModels
 )
 ClientMessage = Annotated[AnyClientMessage, Field(discriminator="type")]
 

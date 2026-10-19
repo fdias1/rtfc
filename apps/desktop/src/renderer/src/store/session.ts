@@ -4,6 +4,7 @@ import { create } from 'zustand'
 import type { ServerMessage, SessionInfo } from '@rtfc/protocol'
 import { CaptureError, startCapture, type AudioLevel, type LiveCapture, type LiveSource } from '../lib/audio/capture'
 import { backend, onServerMessage, onSocketClose } from '../lib/connection'
+import { useClaims } from './claims'
 import { useLibrary } from './library'
 import { useTranscript } from './transcript'
 
@@ -76,6 +77,7 @@ async function startBackendCapture(set: SetState): Promise<void> {
     })
     if (reply.type !== 'session.started') throw new Error(reply.type === 'error' ? reply.message : reply.type)
     useTranscript.getState().reset(reply.session.id)
+    useClaims.getState().reset(reply.session.id)
     set({ starting: null, active: { info: reply.session, paused: false, processedMs: 0, totalMs: null } })
   } catch (err) {
     set({
@@ -156,6 +158,7 @@ export const useSession = create<SessionState>((set, get) => ({
       })
       if (reply.type !== 'session.started') throw new Error(reply.type === 'error' ? reply.message : reply.type)
       useTranscript.getState().reset(reply.session.id)
+      useClaims.getState().reset(reply.session.id)
       for (const pcm of queue.splice(0)) backend.sendBinary(pcm)
       ready = true
       set({
@@ -182,6 +185,7 @@ export const useSession = create<SessionState>((set, get) => ({
       })
       if (reply.type !== 'session.started') throw new Error(reply.type === 'error' ? reply.message : reply.type)
       useTranscript.getState().reset(reply.session.id)
+      useClaims.getState().reset(reply.session.id)
       set({
         starting: null,
         active: {

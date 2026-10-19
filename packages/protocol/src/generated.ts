@@ -15,6 +15,14 @@ export type ClientMessage =
   | SessionList
   | SessionRename
   | SessionDelete
+  | ClaimsGet
+  | ClaimManual
+  | ClaimDiscard
+  | SettingsGet
+  | SettingsSet
+  | SecretSet
+  | LlmTest
+  | LlmModels
 /**
  * This interface was referenced by `RtfcProtocol`'s JSON-Schema
  * via the `definition` "ServerMessage".
@@ -34,6 +42,12 @@ export type ServerMessage =
   | TranscriptPartial
   | TranscriptResult
   | SttStatusMessage
+  | ClaimUpdated
+  | ClaimsResult
+  | ExtractorStatus
+  | SettingsResult
+  | LlmTestResult
+  | LlmModelsResult
 
 /**
  * rtfc protocol v1
@@ -131,6 +145,108 @@ export interface SessionDelete {
   id: string
   session_id: string
   type: 'session.delete'
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "ClaimsGet".
+ */
+export interface ClaimsGet {
+  id: string
+  session_id: string
+  type: 'claims.get'
+}
+/**
+ * Checagem de um trecho escolhido pelo usuário (seleção na transcrição).
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "ClaimManual".
+ */
+export interface ClaimManual {
+  from_segment: number
+  from_word: number
+  id: string
+  session_id: string
+  to_segment: number
+  to_word: number
+  type: 'claim.manual'
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "ClaimDiscard".
+ */
+export interface ClaimDiscard {
+  claim_id: string
+  id: string
+  type: 'claim.discard'
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SettingsGet".
+ */
+export interface SettingsGet {
+  id: string
+  type: 'settings.get'
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SettingsSet".
+ */
+export interface SettingsSet {
+  id: string
+  settings: SettingsData
+  type: 'settings.set'
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SettingsData".
+ */
+export interface SettingsData {
+  auto_extract: boolean
+  checker: LlmRoleData
+  extractor: LlmRoleData
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "LlmRoleData".
+ */
+export interface LlmRoleData {
+  base_url: string | null
+  model: string
+  provider: string
+}
+/**
+ * Grava (ou apaga, com `value=None`) a chave de API de um provedor no cofre do SO.
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SecretSet".
+ */
+export interface SecretSet {
+  id: string
+  provider: string
+  type: 'secret.set'
+  value: string | null
+}
+/**
+ * Testa a conexão do papel `role` com a configuração dada (ou a salva).
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "LlmTest".
+ */
+export interface LlmTest {
+  config: LlmRoleData | null
+  id: string
+  role: 'extractor' | 'checker'
+  type: 'llm.test'
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "LlmModels".
+ */
+export interface LlmModels {
+  base_url: string | null
+  id: string
+  provider: string
+  type: 'llm.models'
 }
 /**
  * Enviada pelo servidor assim que a conexão é aceita.
@@ -336,4 +452,104 @@ export interface SttStatusMessage {
   progress: number | null
   state: 'idle' | 'downloading' | 'loading' | 'ready' | 'error'
   type: 'stt.status'
+}
+/**
+ * Afirmação nova ou com estado alterado. Tem `id` quando responde a claim.manual/discard.
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "ClaimUpdated".
+ */
+export interface ClaimUpdated {
+  claim: ClaimData
+  id: string | null
+  type: 'claim.updated'
+}
+/**
+ * Afirmação factual verificável, ancorada num trecho da transcrição (palavras inclusivas).
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "ClaimData".
+ */
+export interface ClaimData {
+  dedup_of: string | null
+  end_ms: number
+  from_segment: number
+  from_word: number
+  id: string
+  origin: 'auto' | 'manual'
+  session_id: string
+  source_text: string
+  speaker: string | null
+  start_ms: number
+  status: 'queued' | 'checking' | 'done' | 'cancelled' | 'discarded' | 'error'
+  text: string
+  to_segment: number
+  to_word: number
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "ClaimsResult".
+ */
+export interface ClaimsResult {
+  claims: ClaimData[]
+  id: string
+  session_id: string
+  type: 'claims.result'
+}
+/**
+ * Estado do extrator de afirmações de uma sessão (por exemplo, LLM fora do ar).
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "ExtractorStatus".
+ */
+export interface ExtractorStatus {
+  message: string | null
+  session_id: string
+  state: 'idle' | 'running' | 'error' | 'disabled'
+  type: 'extractor.status'
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SettingsResult".
+ */
+export interface SettingsResult {
+  id: string
+  providers: ProviderData[]
+  settings: SettingsData
+  type: 'settings.result'
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "ProviderData".
+ */
+export interface ProviderData {
+  default_base_url: string | null
+  has_key: boolean
+  id: string
+  label: string
+  needs_key: boolean
+  suggested_models: string[]
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "LlmTestResult".
+ */
+export interface LlmTestResult {
+  id: string
+  latency_ms: number | null
+  message: string | null
+  model: string
+  ok: boolean
+  type: 'llm.test.result'
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "LlmModelsResult".
+ */
+export interface LlmModelsResult {
+  id: string
+  message: string | null
+  models: string[]
+  provider: string
+  type: 'llm.models.result'
 }

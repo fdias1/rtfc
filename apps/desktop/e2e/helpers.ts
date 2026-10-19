@@ -10,12 +10,19 @@ export interface Launched {
   sessionsDir: string
 }
 
-/** Mídia falsa e o menor modelo de STT (o app pré-carrega o modelo ao abrir). */
-export const TEST_ENV = { RTFC_FAKE_MEDIA: '1', RTFC_STT_ENGINE: 'faster-whisper', RTFC_STT_MODEL: 'tiny' }
+/** Mídia falsa, o menor modelo de STT (pré-carregado ao abrir) e LLM falso. */
+export const TEST_ENV = {
+  RTFC_FAKE_MEDIA: '1',
+  RTFC_STT_ENGINE: 'faster-whisper',
+  RTFC_STT_MODEL: 'tiny',
+  // LLM determinístico (sem rede nem Ollama): cada frase com 4+ palavras vira uma afirmação.
+  RTFC_TEST_FAKE_LLM: '1'
+}
 
 export async function launchApp(extraEnv: Record<string, string> = {}): Promise<Launched> {
   // Reusar a pasta (RTFC_SESSIONS_DIR em extraEnv) simula reabrir o app com sessões salvas.
-  const sessionsDir = extraEnv.RTFC_SESSIONS_DIR ?? mkdtempSync(join(tmpdir(), 'rtfc-e2e-'))
+  // A pasta-mãe guarda settings.json e rtfc.sqlite: precisa ser exclusiva de cada teste.
+  const sessionsDir = extraEnv.RTFC_SESSIONS_DIR ?? join(mkdtempSync(join(tmpdir(), 'rtfc-e2e-')), 'sessions')
   const app = await electron.launch({
     args: [resolve(__dirname, '..')],
     env: { ...process.env, ...TEST_ENV, RTFC_SESSIONS_DIR: sessionsDir, ...extraEnv } as Record<string, string>

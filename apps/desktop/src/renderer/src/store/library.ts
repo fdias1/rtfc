@@ -3,6 +3,7 @@
 import { create } from 'zustand'
 import type { SessionInfo, SessionListItem } from '@rtfc/protocol'
 import { backend } from '../lib/connection'
+import { useClaims } from './claims'
 import { useTranscript } from './transcript'
 
 interface LibraryState {
@@ -50,6 +51,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     const reply = await backend.request({ type: 'transcript.get', session_id: sessionId })
     if (reply.type !== 'transcript.result') return
     useTranscript.getState().load(sessionId, reply.segments)
+    await useClaims.getState().load(sessionId)
     set({ viewing: item.session })
   },
 
@@ -74,11 +76,15 @@ export const useLibrary = create<LibraryState>((set, get) => ({
       items: s.items.filter((i) => i.session.id !== sessionId),
       viewing: s.viewing?.id === sessionId ? null : s.viewing
     }))
-    if (useTranscript.getState().sessionId === sessionId) useTranscript.getState().reset('')
+    if (useTranscript.getState().sessionId === sessionId) {
+      useTranscript.getState().reset('')
+      useClaims.getState().reset('')
+    }
   },
 
   close() {
     set({ viewing: null })
     useTranscript.getState().reset('')
+    useClaims.getState().reset('')
   }
 }))
