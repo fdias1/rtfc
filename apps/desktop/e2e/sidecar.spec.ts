@@ -6,12 +6,16 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test } from '@playwright/test'
 import type { SidecarStatus } from '../src/shared/ipc'
+import { TEST_ENV } from './helpers'
 import type {} from '../src/preload/index.d'
 
 test('backend sobe com o app e se recupera depois de morrer', async () => {
   const app = await electron.launch({
     args: [resolve(__dirname, '..')],
-    env: { ...process.env, RTFC_SESSIONS_DIR: mkdtempSync(join(tmpdir(), 'rtfc-e2e-')) } as Record<string, string>
+    env: { ...process.env, ...TEST_ENV, RTFC_SESSIONS_DIR: mkdtempSync(join(tmpdir(), 'rtfc-e2e-')) } as Record<
+      string,
+      string
+    >
   })
   try {
     const win = await app.firstWindow()

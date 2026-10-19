@@ -3,7 +3,7 @@ import { FileAudio, LoaderCircle, Mic, MonitorSpeaker, Pause, Play, Square, Tria
 import { listMicrophones } from '../lib/audio/capture'
 import { basename, formatDuration } from '../lib/format'
 import { summarize, useConnection } from '../store/connection'
-import { useSession, type SourceKind } from '../store/session'
+import { useSession, type LanguageChoice, type SourceKind } from '../store/session'
 import { LevelMeter } from './LevelMeter'
 
 const SOURCE_LABEL: Record<SourceKind, string> = {
@@ -196,6 +196,36 @@ function ErrorNotice(): React.JSX.Element | null {
   )
 }
 
+const LANGUAGES: { value: LanguageChoice; label: string }[] = [
+  { value: 'pt', label: 'Português' },
+  { value: 'en', label: 'Inglês' },
+  { value: 'es', label: 'Espanhol' },
+  { value: 'auto', label: 'Detectar automaticamente' }
+]
+
+function LanguageSelect({ disabled }: { disabled: boolean }): React.JSX.Element {
+  const language = useSession((s) => s.language)
+  const setLanguage = useSession((s) => s.setLanguage)
+  return (
+    <label className="flex flex-col gap-1 text-xs text-text-muted">
+      Idioma do discurso
+      <select
+        value={language}
+        onChange={(e) => setLanguage(e.target.value as LanguageChoice)}
+        disabled={disabled}
+        data-testid="language-select"
+        className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-text"
+      >
+        {LANGUAGES.map((l) => (
+          <option key={l.value} value={l.value}>
+            {l.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
 export function SourcePanel(): React.JSX.Element {
   const connected = useConnection((s) => summarize(s.sidecar, s.socket) === 'connected')
   const active = useSession((s) => s.active)
@@ -216,6 +246,7 @@ export function SourcePanel(): React.JSX.Element {
     <div className="flex flex-col gap-4">
       <ActiveSession />
       <ErrorNotice />
+      <LanguageSelect disabled={active !== null || starting !== null} />
 
       <div className="flex flex-col gap-2">
         <SourceButton

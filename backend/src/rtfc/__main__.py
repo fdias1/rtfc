@@ -75,6 +75,13 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s", stream=sys.stderr
+    )
+    for noisy in ("httpx", "huggingface_hub", "filelock"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+    logging.getLogger().addFilter(_RedactToken())
+
     token = os.environ.get("RTFC_TOKEN")
     if not token:
         print("RTFC_TOKEN não definido", file=sys.stderr)

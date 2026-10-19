@@ -4,29 +4,43 @@ import { ConnectionBadge } from './components/ConnectionBadge'
 import { MediaPlayer } from './components/MediaPlayer'
 import { EmptyState, Panel } from './components/Panel'
 import { SourcePanel } from './components/SourcePanel'
+import { SttBadge } from './components/SttBadge'
+import { TranscriptView } from './components/TranscriptView'
 import { summarize, useConnection } from './store/connection'
 import { useSession } from './store/session'
+import { useTranscript } from './store/transcript'
 
 function TranscriptPanel(): React.JSX.Element {
   const active = useSession((s) => s.active)
   const last = useSession((s) => s.last)
   // Arquivo: player desde o início. Ao vivo: player da gravação depois de encerrar.
   const playable = active?.info.source === 'file' ? active.info : active ? null : last
+  const hasText = useTranscript((s) => s.segments.length > 0 || s.partial !== null)
+  const stt = useTranscript((s) => s.stt)
+  const waitingModel = active && stt && stt.state !== 'ready'
 
   return (
     <Panel title="Transcrição">
       <div className="flex h-full flex-col gap-4">
         {playable && <MediaPlayer session={playable} />}
         <div className="min-h-0 flex-1">
-          <EmptyState
-            icon={<ScrollText size={32} strokeWidth={1.25} />}
-            title={active ? 'Recebendo áudio…' : 'Nenhuma transcrição ainda'}
-            hint={
-              active
-                ? 'A transcrição em tempo real chega no próximo marco (M2). O áudio já está sendo gravado.'
-                : 'Escolha uma fonte de áudio para começar. A transcrição aparece aqui em tempo real.'
-            }
-          />
+          {hasText ? (
+            <TranscriptView />
+          ) : (
+            <EmptyState
+              icon={<ScrollText size={32} strokeWidth={1.25} />}
+              title={
+                waitingModel ? 'Preparando o modelo de transcrição…' : active ? 'Ouvindo…' : 'Nenhuma transcrição ainda'
+              }
+              hint={
+                waitingModel
+                  ? 'O áudio já está sendo gravado; a transcrição começa assim que o modelo estiver pronto.'
+                  : active
+                    ? 'A transcrição aparece aqui assim que alguém falar.'
+                    : 'Escolha uma fonte de áudio para começar. A transcrição aparece aqui em tempo real.'
+              }
+            />
+          )}
         </div>
       </div>
     </Panel>
@@ -65,7 +79,10 @@ export function App(): React.JSX.Element {
           <span className="text-xl font-semibold tracking-tight text-primary">rtfc</span>
           <span className="text-xs text-text-muted">Real Time Fact Checker</span>
         </div>
-        <ConnectionBadge />
+        <div className="flex items-center gap-2">
+          <SttBadge />
+          <ConnectionBadge />
+        </div>
       </header>
 
       <main className="grid min-h-0 flex-1 grid-cols-[280px_minmax(0,1fr)_380px] gap-4 p-4">

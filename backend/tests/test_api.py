@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -7,13 +8,15 @@ from starlette.websockets import WebSocketDisconnect
 from rtfc import __version__
 from rtfc.api import create_app
 from rtfc.api.app import WS_CLOSE_UNAUTHORIZED
+from rtfc.sessions import SessionManager
 
 TOKEN = "test-token"
 
 
 @pytest.fixture
-def client() -> TestClient:
-    return TestClient(create_app(TOKEN))
+def client(tmp_path: Path) -> TestClient:
+    # Sem STT: estes testes cobrem só a API.
+    return TestClient(create_app(TOKEN, sessions=SessionManager(tmp_path / "sessions")))
 
 
 def test_health_requires_token(client: TestClient) -> None:

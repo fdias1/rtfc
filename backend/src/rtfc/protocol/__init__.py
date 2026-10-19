@@ -20,6 +20,14 @@ from rtfc.protocol.messages import (
     SessionStart,
     SessionStarted,
     SessionStop,
+    SessionUpdated,
+    SttStatusMessage,
+    TranscriptGet,
+    TranscriptPartial,
+    TranscriptResult,
+    TranscriptSegment,
+    TranscriptSegmentData,
+    TranscriptWord,
     parse_client_message,
 )
 
@@ -39,5 +47,13 @@ __all__ = [
     "SessionStart",
     "SessionStarted",
     "SessionStop",
+    "SessionUpdated",
+    "SttStatusMessage",
+    "TranscriptGet",
+    "TranscriptPartial",
+    "TranscriptResult",
+    "TranscriptSegment",
+    "TranscriptSegmentData",
+    "TranscriptWord",
     "parse_client_message",
 ]

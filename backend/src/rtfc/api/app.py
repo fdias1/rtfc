@@ -28,13 +28,17 @@ from rtfc.protocol import (
     Ping,
     Pong,
     SessionEnded,
-    SessionProgress,
     SessionStart,
     SessionStarted,
     SessionStop,
+    SttStatusMessage,
+    TranscriptGet,
+    TranscriptResult,
     parse_client_message,
 )
-from rtfc.sessions import Session, SessionError, SessionManager
+from rtfc.sessions import Session, SessionError, SessionManager, default_sessions_dir
+from rtfc.storage import TranscriptStore
+from rtfc.stt.service import SttService, SttStatus
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +48,8 @@ WS_CLOSE_UNAUTHORIZED = 4401
 
 def create_app(token: str, sessions: SessionManager | None = None) -> FastAPI:
     app = FastAPI(title="rtfc backend", version=__version__, docs_url=None, redoc_url=None)
-    manager = sessions or SessionManager()
+    manager = sessions or default_manager()
+    preload: dict[str, asyncio.Task[object]] = {}
 
     def _valid(candidate: str | None) -> bool:
         return candidate is not None and secrets.compare_digest(candidate, token)
@@ -76,6 +81,12 @@ def create_app(token: str, sessions: SessionManager | None = None) -> FastAPI:
         await websocket.accept()
         conn = _Connection(websocket, manager)
         await conn.send(Hello(server_version=__version__))
+        if manager.stt is not None:
+            await conn.send_stt(manager.stt.status)
+            # Carrega (e baixa, na primeira vez) o modelo assim que a UI conecta, para a
+            # primeira sessão não esperar.
+            if "stt" not in preload:
+                preload["stt"] = asyncio.create_task(_preload(manager.stt))
         try:
             await conn.run()
         finally:
@@ -85,6 +96,19 @@ def create_app(token: str, sessions: SessionManager | None = None) -> FastAPI:
                 await conn.close()
 
     return app
+
+
+def default_manager() -> SessionManager:
+    sessions_dir = default_sessions_dir()
+    store = TranscriptStore(sessions_dir.parent / "rtfc.sqlite")
+    return SessionManager(sessions_dir, stt=SttService(), store=store)
+
+
+async def _preload(stt: SttService) -> object:
+    try:
+        return await stt.ensure_ready()
+    except Exception:
+        return None  # o erro já foi enviado como stt.status
 
 
 class _Connection:
@@ -97,6 +121,18 @@ class _Connection:
         self._owned: list[str] = []
         self._live: Session | None = None
         self._warned_no_live = False
+        self._unsubscribe = manager.stt.subscribe(self.send_stt) if manager.stt else None
+
+    async def send_stt(self, status: SttStatus) -> None:
+        await self.send(
+            SttStatusMessage(
+                state=status.state,
+                engine=status.engine,
+                model=status.model,
+                progress=status.progress,
+                message=status.message,
+            )
+        )
 
     async def send(self, msg: BaseModel) -> None:
         if self.ws.client_state != WebSocketState.CONNECTED:
@@ -104,7 +140,7 @@ class _Connection:
         async with self._send_lock:
             await self.ws.send_text(msg.model_dump_json())
 
-    async def emit(self, event: SessionProgress | SessionEnded) -> None:
+    async def emit(self, event: BaseModel) -> None:
         if isinstance(event, SessionEnded) and self._live and self._live.id == event.session.id:
             self._live = None
         await self.send(event)
@@ -122,6 +158,8 @@ class _Connection:
                     await self.send(reply)
 
     async def close(self) -> None:
+        if self._unsubscribe:
+            self._unsubscribe()
         self._live = None
         await self.manager.stop_all(self._owned)
 
@@ -156,6 +194,12 @@ class _Connection:
                     return await self._start(msg)
                 case SessionStop():
                     return await self.manager.stop(msg.session_id, request_id=msg.id)
+                case TranscriptGet():
+                    return TranscriptResult(
+                        id=msg.id,
+                        session_id=msg.session_id,
+                        segments=self.manager.transcript(msg.session_id),
+                    )
         except SessionError as exc:
             return ErrorMessage(id=msg.id, code="session_error", message=str(exc))
 
@@ -163,7 +207,7 @@ class _Connection:
         if msg.source == "file":
             if not msg.file_path:
                 raise SessionError("file_path é obrigatório para sessões de arquivo")
-            session = await self.manager.start_file(msg.file_path, self.emit)
+            session = await self.manager.start_file(msg.file_path, self.emit, language=msg.language)
         else:
             if msg.capture == "ui" and self._live is not None:
                 raise SessionError("já existe uma sessão ao vivo nesta conexão")
@@ -172,6 +216,7 @@ class _Connection:
                 self.emit,
                 sample_rate=msg.sample_rate,
                 backend_capture=msg.capture == "backend",
+                language=msg.language,
             )
             if msg.capture == "ui":
                 self._live = session

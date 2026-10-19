@@ -13,9 +13,23 @@ O rtfc é distribuído sob PolyForm Noncommercial 1.0.0. Por isso, **só são ac
 | Lucide | ISC | Ícones |
 | FastAPI, Uvicorn, Pydantic | MIT / BSD-3-Clause | Backend |
 
+## Transcrição
+
+| Componente | Licença |
+|---|---|
+| faster-whisper, CTranslate2 | MIT |
+| mlx, mlx-whisper (só macOS arm64) | MIT |
+| onnxruntime | MIT |
+| PyTorch (dependência do mlx-whisper) | BSD-3-Clause |
+
 ## Modelos (pesos)
 
-Serão listados aqui conforme forem integrados (Whisper — MIT; Silero VAD — MIT; pyannote — termos do Hugging Face; sherpa-onnx — Apache-2.0).
+Baixados sob demanda do Hugging Face Hub; não vêm no instalador.
+
+| Modelo | Licença |
+|---|---|
+| Whisper (OpenAI), incl. conversões `Systran/faster-whisper-*`, `mobiuslabsgmbh/faster-whisper-large-v3-turbo` e `mlx-community/whisper-*` | MIT |
+| Silero VAD (embutido no faster-whisper) | MIT |
 
 ## Binários
 

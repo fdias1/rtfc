@@ -10,6 +10,8 @@ requires-python = ">=3.12"
 dependencies = [
     "anyio>=4.15.1",
     "fastapi>=0.148.0",
+    "faster-whisper>=1.2.1",
+    "numpy>=2.5.4",
     "pydantic>=2.14.1",
     "uvicorn[standard]>=0.54.0",
 ]
@@ -21,6 +23,7 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "httpx2>=2.14.0",
+    "jiwer>=4.0.0",
     "mypy>=2.4.0",
     "pip-licenses>=5.5.5",
     "pytest>=9.1.1",
@@ -30,6 +33,11 @@ dev = [
 
 [project.scripts]
 rtfc-backend = "rtfc.__main__:main"
+
+[project.optional-dependencies]
+mlx = [
+    "mlx-whisper>=0.4.3 ; platform_machine == 'arm64' and sys_platform == 'darwin'",
+]
 
 [tool.ruff]
 line-length = 100
@@ -45,6 +53,10 @@ python_version = "3.12"
 strict = true
 mypy_path = "src"
 packages = ["rtfc"]
+
+[[tool.mypy.overrides]]
+module = ["faster_whisper.*", "mlx_whisper.*", "mlx.*", "jiwer.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

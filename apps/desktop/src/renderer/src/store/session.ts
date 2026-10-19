@@ -4,8 +4,28 @@ import { create } from 'zustand'
 import type { ServerMessage, SessionInfo } from '@rtfc/protocol'
 import { CaptureError, startCapture, type AudioLevel, type LiveCapture, type LiveSource } from '../lib/audio/capture'
 import { backend, onServerMessage, onSocketClose } from '../lib/connection'
+import { useTranscript } from './transcript'
 
 export type SourceKind = LiveSource | 'file'
+
+/** Idioma do discurso: código ISO 639-1 ou 'auto' (detecção na primeira fala). */
+export type LanguageChoice = 'pt' | 'en' | 'es' | 'auto'
+
+const LANGUAGE_KEY = 'rtfc.language'
+
+function initialLanguage(): LanguageChoice {
+  try {
+    const saved = localStorage.getItem(LANGUAGE_KEY)
+    if (saved === 'pt' || saved === 'en' || saved === 'es' || saved === 'auto') return saved
+  } catch {
+    // armazenamento indisponível: usa o padrão
+  }
+  return 'pt'
+}
+
+function languageParam(choice: LanguageChoice): string | null {
+  return choice === 'auto' ? null : choice
+}
 
 interface ActiveSession {
   info: SessionInfo
@@ -25,6 +45,8 @@ interface SessionState {
   error: string | null
   errorCode: CaptureError['code'] | 'backend' | null
   level: AudioLevel
+  language: LanguageChoice
+  setLanguage(language: LanguageChoice): void
   startLive(source: LiveSource, deviceId?: string): Promise<void>
   startFile(path: string): Promise<void>
   stop(): Promise<void>
@@ -50,9 +72,11 @@ async function startBackendCapture(set: SetState): Promise<void> {
       source: 'system',
       capture: 'backend',
       sample_rate: 48_000,
-      file_path: null
+      file_path: null,
+      language: languageParam(useSession.getState().language)
     })
     if (reply.type !== 'session.started') throw new Error(reply.type === 'error' ? reply.message : reply.type)
+    useTranscript.getState().reset(reply.session.id)
     set({ starting: null, active: { info: reply.session, paused: false, processedMs: 0, totalMs: null } })
   } catch (err) {
     set({
@@ -71,6 +95,16 @@ export const useSession = create<SessionState>((set, get) => ({
   error: null,
   errorCode: null,
   level: SILENCE,
+  language: initialLanguage(),
+
+  setLanguage(language) {
+    set({ language })
+    try {
+      localStorage.setItem(LANGUAGE_KEY, language)
+    } catch {
+      // preferência não persiste, sem problema
+    }
+  },
 
   async startLive(source, deviceId) {
     if (get().active || get().starting) return
@@ -119,9 +153,11 @@ export const useSession = create<SessionState>((set, get) => ({
         source,
         capture: 'ui',
         sample_rate: capture.sampleRate,
-        file_path: null
+        file_path: null,
+        language: languageParam(get().language)
       })
       if (reply.type !== 'session.started') throw new Error(reply.type === 'error' ? reply.message : reply.type)
+      useTranscript.getState().reset(reply.session.id)
       for (const pcm of queue.splice(0)) backend.sendBinary(pcm)
       ready = true
       set({
@@ -143,9 +179,11 @@ export const useSession = create<SessionState>((set, get) => ({
         source: 'file',
         capture: 'ui',
         sample_rate: 48_000,
-        file_path: path
+        file_path: path,
+        language: languageParam(get().language)
       })
       if (reply.type !== 'session.started') throw new Error(reply.type === 'error' ? reply.message : reply.type)
+      useTranscript.getState().reset(reply.session.id)
       set({
         starting: null,
         active: {
@@ -191,7 +229,9 @@ export const useSession = create<SessionState>((set, get) => ({
 
   handleServerMessage(msg) {
     const active = get().active
-    if (msg.type === 'session.progress' && active?.info.id === msg.session_id) {
+    if (msg.type === 'session.updated' && active?.info.id === msg.session.id) {
+      set({ active: { ...active, info: msg.session } })
+    } else if (msg.type === 'session.progress' && active?.info.id === msg.session_id) {
       set({ active: { ...active, processedMs: msg.processed_ms, totalMs: msg.total_ms ?? active.totalMs } })
     } else if (msg.type === 'session.ended' && msg.id === null && active?.info.id === msg.session.id) {
       set({

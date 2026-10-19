@@ -6,13 +6,24 @@
  * This interface was referenced by `RtfcProtocol`'s JSON-Schema
  * via the `definition` "ClientMessage".
  */
-export type ClientMessage = Ping | EchoRequest | SessionStart | SessionStop
+export type ClientMessage = Ping | EchoRequest | SessionStart | SessionStop | TranscriptGet
 /**
  * This interface was referenced by `RtfcProtocol`'s JSON-Schema
  * via the `definition` "ServerMessage".
  */
 export type ServerMessage =
-  Hello | Pong | EchoReply | ErrorMessage | SessionStarted | SessionProgress | SessionEnded
+  | Hello
+  | Pong
+  | EchoReply
+  | ErrorMessage
+  | SessionStarted
+  | SessionProgress
+  | SessionEnded
+  | SessionUpdated
+  | TranscriptSegment
+  | TranscriptPartial
+  | TranscriptResult
+  | SttStatusMessage
 
 /**
  * rtfc protocol v1
@@ -55,6 +66,7 @@ export interface SessionStart {
   capture: 'ui' | 'backend'
   file_path: string | null
   id: string
+  language: string | null
   sample_rate: number
   source: 'mic' | 'system' | 'file'
   type: 'session.start'
@@ -67,6 +79,17 @@ export interface SessionStop {
   id: string
   session_id: string
   type: 'session.stop'
+}
+/**
+ * Pede a transcrição completa de uma sessão (ao reabrir).
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "TranscriptGet".
+ */
+export interface TranscriptGet {
+  id: string
+  session_id: string
+  type: 'transcript.get'
 }
 /**
  * Enviada pelo servidor assim que a conexão é aceita.
@@ -128,10 +151,13 @@ export interface SessionInfo {
   ended_at: string | null
   file_path: string | null
   id: string
+  language: string | null
   media_kind: 'audio' | 'video'
   source: 'mic' | 'system' | 'file'
   started_at: string
   status: 'recording' | 'processing' | 'completed' | 'interrupted' | 'error'
+  stt_engine: string | null
+  stt_model: string | null
 }
 /**
  * Progresso: tempo de áudio já recebido (ao vivo) ou decodificado (arquivo).
@@ -157,4 +183,85 @@ export interface SessionEnded {
   reason: 'stopped' | 'completed' | 'error'
   session: SessionInfo
   type: 'session.ended'
+}
+/**
+ * Metadados da sessão mudaram (por exemplo, o idioma foi detectado).
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SessionUpdated".
+ */
+export interface SessionUpdated {
+  session: SessionInfo
+  type: 'session.updated'
+}
+/**
+ * Um segmento (frase) confirmado. Não muda mais.
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "TranscriptSegment".
+ */
+export interface TranscriptSegment {
+  latency_ms: number | null
+  segment: TranscriptSegmentData
+  session_id: string
+  type: 'transcript.segment'
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "TranscriptSegmentData".
+ */
+export interface TranscriptSegmentData {
+  end_ms: number
+  index: number
+  speaker: string | null
+  start_ms: number
+  text: string
+  words: TranscriptWord[]
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "TranscriptWord".
+ */
+export interface TranscriptWord {
+  end_ms: number
+  prob: number
+  start_ms: number
+  text: string
+}
+/**
+ * Trecho ainda aberto: `confirmed` não muda mais; `tentative` pode mudar na próxima passada.
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "TranscriptPartial".
+ */
+export interface TranscriptPartial {
+  confirmed: string
+  session_id: string
+  start_ms: number
+  tentative: string
+  type: 'transcript.partial'
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "TranscriptResult".
+ */
+export interface TranscriptResult {
+  id: string
+  segments: TranscriptSegmentData[]
+  session_id: string
+  type: 'transcript.result'
+}
+/**
+ * Estado do modelo de transcrição (download, carregamento, pronto, erro).
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SttStatusMessage".
+ */
+export interface SttStatusMessage {
+  engine: string
+  message: string | null
+  model: string
+  progress: number | null
+  state: 'idle' | 'downloading' | 'loading' | 'ready' | 'error'
+  type: 'stt.status'
 }

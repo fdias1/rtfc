@@ -5,10 +5,11 @@ import os
 import subprocess
 import sys
 import urllib.request
+from pathlib import Path
 
 
-def test_sidecar_announces_port_and_exits_on_stdin_close() -> None:
-    env = {**os.environ, "RTFC_TOKEN": "t"}
+def test_sidecar_announces_port_and_exits_on_stdin_close(tmp_path: Path) -> None:
+    env = {**os.environ, "RTFC_TOKEN": "t", "RTFC_SESSIONS_DIR": str(tmp_path / "sessions")}
     proc = subprocess.Popen(
         [sys.executable, "-m", "rtfc"],
         stdin=subprocess.PIPE,

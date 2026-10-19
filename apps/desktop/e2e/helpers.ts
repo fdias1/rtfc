@@ -10,15 +10,19 @@ export interface Launched {
   sessionsDir: string
 }
 
+/** Mídia falsa e o menor modelo de STT (o app pré-carrega o modelo ao abrir). */
+export const TEST_ENV = { RTFC_FAKE_MEDIA: '1', RTFC_STT_ENGINE: 'faster-whisper', RTFC_STT_MODEL: 'tiny' }
+
 export async function launchApp(extraEnv: Record<string, string> = {}): Promise<Launched> {
   const sessionsDir = mkdtempSync(join(tmpdir(), 'rtfc-e2e-'))
   const app = await electron.launch({
     args: [resolve(__dirname, '..')],
-    env: { ...process.env, RTFC_SESSIONS_DIR: sessionsDir, RTFC_FAKE_MEDIA: '1', ...extraEnv } as Record<string, string>
+    env: { ...process.env, ...TEST_ENV, RTFC_SESSIONS_DIR: sessionsDir, ...extraEnv } as Record<string, string>
   })
   const win = await app.firstWindow()
   win.on('console', (m) => {
-    if (m.type() === 'error' || m.type() === 'warning') console.log(`[renderer ${m.type()}] ${m.text()}`)
+    if (m.type() === 'error' || m.type() === 'warning')
+      console.log(`[renderer ${m.type()}] ${m.text().replace(/token=[^&\s'"]+/g, 'token=***')}`)
   })
   win.on('pageerror', (e) => console.log(`[renderer pageerror] ${e.message}`))
   await expect(win.getByTestId('connection-status')).toHaveAttribute('data-state', 'connected', {

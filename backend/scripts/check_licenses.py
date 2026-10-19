@@ -21,6 +21,7 @@ def runtime_packages() -> set[str]:
             "uv",
             "export",
             "--no-dev",
+            "--all-extras",
             "--no-hashes",
             "--no-emit-project",
             "--format",

@@ -37,6 +37,26 @@ class SessionInfo(_Message):
     started_at: str
     ended_at: str | None = None
     duration_ms: int | None = None
+    language: str | None = None
+    """Idioma do discurso (definido pelo usuário ou detectado na primeira fala)."""
+    stt_engine: str | None = None
+    stt_model: str | None = None
+
+
+class TranscriptWord(_Message):
+    text: str
+    start_ms: int
+    end_ms: int
+    prob: float
+
+
+class TranscriptSegmentData(_Message):
+    index: int
+    start_ms: int
+    end_ms: int
+    text: str
+    words: list[TranscriptWord]
+    speaker: str | None = None
 
 
 # --- Servidor → cliente ------------------------------------------------------
@@ -93,8 +113,64 @@ class SessionEnded(_Message):
     error: str | None = None
 
 
+class SessionUpdated(_Message):
+    """Metadados da sessão mudaram (por exemplo, o idioma foi detectado)."""
+
+    type: Literal["session.updated"] = "session.updated"
+    session: SessionInfo
+
+
+class TranscriptSegment(_Message):
+    """Um segmento (frase) confirmado. Não muda mais."""
+
+    type: Literal["transcript.segment"] = "transcript.segment"
+    session_id: str
+    segment: TranscriptSegmentData
+    latency_ms: int | None = None
+    """Ao vivo: tempo entre o fim da fala e a confirmação do segmento."""
+
+
+class TranscriptPartial(_Message):
+    """Trecho ainda aberto: `confirmed` não muda mais; `tentative` pode mudar na próxima passada."""
+
+    type: Literal["transcript.partial"] = "transcript.partial"
+    session_id: str
+    start_ms: int
+    confirmed: str
+    tentative: str
+
+
+class TranscriptResult(_Message):
+    type: Literal["transcript.result"] = "transcript.result"
+    id: str
+    session_id: str
+    segments: list[TranscriptSegmentData]
+
+
+class SttStatusMessage(_Message):
+    """Estado do modelo de transcrição (download, carregamento, pronto, erro)."""
+
+    type: Literal["stt.status"] = "stt.status"
+    state: Literal["idle", "downloading", "loading", "ready", "error"]
+    engine: str
+    model: str
+    progress: float | None = None
+    message: str | None = None
+
+
 ServerMessage = Annotated[
-    Hello | Pong | EchoReply | ErrorMessage | SessionStarted | SessionProgress | SessionEnded,
+    Hello
+    | Pong
+    | EchoReply
+    | ErrorMessage
+    | SessionStarted
+    | SessionProgress
+    | SessionEnded
+    | SessionUpdated
+    | TranscriptSegment
+    | TranscriptPartial
+    | TranscriptResult
+    | SttStatusMessage,
     Field(discriminator="type"),
 ]
 
@@ -130,6 +206,8 @@ class SessionStart(_Message):
     capture: Literal["ui", "backend"] = "ui"
     sample_rate: int = Field(default=48_000, ge=8_000, le=192_000)
     file_path: str | None = None
+    language: str | None = "pt"
+    """Código ISO 639-1 do idioma do discurso; `None` = detectar automaticamente."""
 
 
 class SessionStop(_Message):
@@ -138,7 +216,15 @@ class SessionStop(_Message):
     session_id: str
 
 
-AnyClientMessage = Ping | EchoRequest | SessionStart | SessionStop
+class TranscriptGet(_Message):
+    """Pede a transcrição completa de uma sessão (ao reabrir)."""
+
+    type: Literal["transcript.get"] = "transcript.get"
+    id: str
+    session_id: str
+
+
+AnyClientMessage = Ping | EchoRequest | SessionStart | SessionStop | TranscriptGet
 ClientMessage = Annotated[AnyClientMessage, Field(discriminator="type")]
 
 _client_adapter: TypeAdapter[AnyClientMessage] = TypeAdapter(ClientMessage)

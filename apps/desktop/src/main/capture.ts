@@ -11,17 +11,29 @@ const fakeMedia = process.env.RTFC_FAKE_MEDIA === '1'
  * (coberto pela permissão de Gravação de Tela).
  */
 export function enableLoopbackFeatures(): void {
+  const enable: string[] = []
+  const disable: string[] = []
   if (fakeMedia) {
     // Testes E2E: microfone falso do Chromium (tom contínuo) e sem diálogos de permissão.
     app.commandLine.appendSwitch('use-fake-device-for-media-stream')
     app.commandLine.appendSwitch('use-fake-ui-for-media-stream')
+    // Fala gravada no lugar do bipe padrão (testa a transcrição ao vivo de ponta a ponta).
+    // O serviço de áudio em sandbox não consegue abrir o arquivo.
+    const wav = process.env.RTFC_FAKE_MIC_WAV
+    if (wav) {
+      app.commandLine.appendSwitch('use-file-for-fake-audio-capture', wav)
+      disable.push('AudioServiceSandbox')
+    }
   }
   if (process.platform === 'darwin') {
-    app.commandLine.appendSwitch('enable-features', 'MacLoopbackAudioForScreenShare,MacSckSystemAudioLoopbackOverride')
+    enable.push('MacLoopbackAudioForScreenShare', 'MacSckSystemAudioLoopbackOverride')
     // O caminho padrão do Chromium 15x (Core Audio Taps) entrega silêncio sem a permissão
     // "Gravação de Áudio do Sistema", que o app em dev não consegue pedir. Ver ADR 0002.
-    app.commandLine.appendSwitch('disable-features', 'MacCatapLoopbackAudioForScreenShare')
+    disable.push('MacCatapLoopbackAudioForScreenShare')
   }
+  // Cada switch só pode aparecer uma vez: uma segunda chamada substituiria a primeira.
+  if (enable.length) app.commandLine.appendSwitch('enable-features', enable.join(','))
+  if (disable.length) app.commandLine.appendSwitch('disable-features', disable.join(','))
 }
 
 const ALLOWED_PERMISSIONS = new Set(['media', 'display-capture', 'clipboard-sanitized-write'])
