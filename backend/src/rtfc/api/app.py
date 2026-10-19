@@ -20,7 +20,14 @@ from starlette.websockets import WebSocketState
 from rtfc import __version__
 from rtfc.api import llm_settings
 from rtfc.audio.sources import AudioSourceError
-from rtfc.config import KeyringSecretStore, LlmRole, Settings, SettingsStore
+from rtfc.config import (
+    KeyringSecretStore,
+    LlmRole,
+    MemorySecretStore,
+    SecretStore,
+    Settings,
+    SettingsStore,
+)
 from rtfc.llm.fake import fake_enabled
 from rtfc.protocol import (
     PROTOCOL_VERSION,
@@ -123,7 +130,9 @@ def create_app(token: str, sessions: SessionManager | None = None) -> FastAPI:
 def default_manager() -> SessionManager:
     sessions_dir = default_sessions_dir()
     data_dir = sessions_dir.parent
-    secret_store = KeyringSecretStore()
+    # Em teste, cofre em memória: nunca lê nem grava as chaves reais do usuário (e o
+    # Keychain de um runner de CI pode travar esperando desbloqueio).
+    secret_store: SecretStore = MemorySecretStore() if fake_enabled() else KeyringSecretStore()
     settings = SettingsStore(data_dir / "settings.json", secret_store)
     if fake_enabled() and not settings.path.exists():
         # E2E: extração determinística, sem rede nem modelo local.

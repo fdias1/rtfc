@@ -110,17 +110,17 @@ test('configurações de modelos: testar conexão e salvar', async () => {
     const extractor = win.getByTestId('role-extractor')
     await expect(extractor).toBeVisible()
     await extractor.getByRole('button', { name: 'Testar conexão' }).click()
-    await expect(win.getByTestId('test-result-extractor')).toContainText('OK')
+    await expect(win.getByTestId('test-result-extractor')).toContainText('OK', { timeout: 15_000 })
 
     // Sem chave, um provedor hospedado falha no teste com mensagem clara.
     await win.getByTestId('provider-checker').selectOption('anthropic')
     await win.getByTestId('role-checker').getByRole('button', { name: 'Testar conexão' }).click()
-    await expect(win.getByTestId('test-result-checker')).toContainText(/chave/i)
+    await expect(win.getByTestId('test-result-checker')).toContainText(/chave/i, { timeout: 15_000 })
     await expect(win.getByTestId('role-checker')).toContainText('Falta a chave de API')
 
     // Teste de busca (provedor falso no modo de teste).
     await win.getByTestId('search-settings').getByRole('button', { name: 'Testar busca' }).click()
-    await expect(win.getByTestId('search-test-result')).toContainText('OK')
+    await expect(win.getByTestId('search-test-result')).toContainText('OK', { timeout: 15_000 })
 
     await win.getByTestId('model-checker').fill('claude-haiku-5-5')
     await win.getByTestId('save-settings').click()
