@@ -30,12 +30,20 @@ def fake_reply(messages: list[dict[str, str]], schema: type[BaseModel]) -> BaseM
             text = m.group(2).strip()
             if len(text.split()) >= 4:
                 claims.append(
-                    {"segment_index": int(m.group(1)), "source_text": text, "claim": text}
+                    {
+                        "segment_index": int(m.group(1)),
+                        "source_text": text,
+                        "claim": text,
+                        "context": "Contexto de teste.",
+                        "score": 5,
+                    }
                 )
         return schema.model_validate({"claims": claims, "last_sentence_incomplete": False})
     if {"claim", "verifiable"} <= fields:
         excerpt = user.split("TRECHO:", 1)[1].strip()
         return schema.model_validate({"claim": excerpt, "verifiable": True})
+    if fields == {"context"}:
+        return schema.model_validate({"context": "Conteúdo de teste gerado automaticamente."})
     if fields == {"queries"}:
         return schema.model_validate({"queries": [user.removeprefix("AFIRMAÇÃO:").strip()]})
     if {"verdict", "sources"} <= fields:

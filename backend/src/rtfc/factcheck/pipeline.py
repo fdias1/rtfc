@@ -11,6 +11,7 @@ from typing import Literal
 from rtfc.config import SearchSettings, SecretStore
 from rtfc.factcheck.verdict import (
     CheckedVerdict,
+    ClaimBackground,
     Evidence,
     judge,
     plan_queries,
@@ -28,6 +29,8 @@ log = logging.getLogger(__name__)
 Stage = Literal["queries", "search", "reading", "analysis"]
 StageCallback = Callable[[Stage], Awaitable[None]]
 
+MAX_QUERIES = 3
+"""Menos consultas por afirmação = menos bloqueio pelos buscadores (a 1ª é a da fonte primária)."""
 CANDIDATES = 10
 """Resultados ranqueados que tentamos ler."""
 MAX_EVIDENCE = 6
@@ -58,10 +61,22 @@ async def _read(results: list[SearchResult], claim: str) -> list[Evidence]:
     # Páginas lidas primeiro; sem texto, o snippet do buscador vale como evidência fraca.
     with_text = [(r, t) for r, t in pages if t]
     snippets = [(r, None) for r, t in pages if not t and len(r.snippet) > 60]
-    for r, text in (with_text + snippets)[:MAX_EVIDENCE]:
-        body = relevant_passage(text, claim) if text else r.snippet
+    chosen = (with_text + snippets)[:MAX_EVIDENCE]
+    # Comparar parágrafos de páginas grandes (PDFs de dezenas de páginas) é CPU pesada:
+    # fora do event loop, para não travar o WebSocket.
+    bodies = await asyncio.gather(
+        *(
+            asyncio.to_thread(relevant_passage, text, claim) if text else _value(r.snippet)
+            for r, text in chosen
+        )
+    )
+    for (r, _), body in zip(chosen, bodies, strict=True):
         evidence.append(Evidence(len(evidence) + 1, r.with_(content=None), body))
     return evidence
+
+
+async def _value(text: str) -> str:
+    return text
 
 
 async def check_claim(
@@ -73,12 +88,22 @@ async def check_claim(
     language: str | None,
     when: date,
     on_stage: StageCallback,
+    claim_context: str | None = None,
+    content_context: str | None = None,
+    speaker: str | None = None,
+    transcript: str = "",
 ) -> CheckOutcome:
     t0 = time.perf_counter()
+    background = ClaimBackground(
+        claim_context=claim_context,
+        content_context=content_context,
+        speaker=speaker,
+        transcript=transcript,
+    )
 
     await on_stage("queries")
-    plan = await plan_queries(client, claim, language=language, when=when)
-    queries = [q.strip() for q in plan.value.queries if q.strip()][:4] or [claim]
+    plan = await plan_queries(client, claim, language=language, when=when, background=background)
+    queries = [q.strip() for q in plan.value.queries if q.strip()][:MAX_QUERIES] or [claim]
 
     await on_stage("search")
     found = await search(queries, language=language, settings=search_settings, secrets=secrets)
@@ -90,7 +115,9 @@ async def check_claim(
 
     await on_stage("analysis")
     if evidence:
-        raw = await judge(client, claim, evidence, language=language, when=when)
+        raw = await judge(
+            client, claim, evidence, language=language, when=when, background=background
+        )
         verdict = validate(raw.value, evidence, language)
         model = raw.model
     else:

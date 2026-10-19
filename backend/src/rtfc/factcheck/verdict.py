@@ -44,6 +44,30 @@ class VerdictResult(BaseModel):
 
 
 @dataclass(frozen=True)
+class ClaimBackground:
+    """O que cerca a afirmação: sem isso, "o desemprego caiu" não diz de onde nem de quando."""
+
+    claim_context: str | None = None
+    content_context: str | None = None
+    speaker: str | None = None
+    transcript: str = ""
+
+    def render(self) -> str:
+        parts = []
+        if self.content_context:
+            parts.append(f"CONTEXTO DO CONTEÚDO: {self.content_context}")
+        if self.speaker:
+            parts.append(f"QUEM DISSE: {self.speaker}")
+        if self.claim_context:
+            parts.append(f"CONTEXTO DA AFIRMAÇÃO: {self.claim_context}")
+        if self.transcript:
+            parts.append(
+                "TRANSCRIÇÃO AO REDOR (>> marca o trecho da afirmação):\n" + self.transcript[-4000:]
+            )
+        return "\n\n".join(parts)
+
+
+@dataclass(frozen=True)
 class Evidence:
     number: int
     result: SearchResult
@@ -69,8 +93,8 @@ class CheckedVerdict:
 
 
 TIER_LABEL = {
+    "primary": "fonte primária",
     "factchecker": "agência de checagem",
-    "official": "fonte oficial",
     "press": "imprensa",
 }
 
@@ -109,23 +133,38 @@ def format_evidence(items: list[Evidence]) -> str:
 
 
 async def plan_queries(
-    client: LlmClient, claim: str, *, language: str | None, when: date
+    client: LlmClient,
+    claim: str,
+    *,
+    language: str | None,
+    when: date,
+    background: ClaimBackground | None = None,
 ) -> LlmResult[SearchPlan]:
+    extra = background.render() if background else ""
     messages = [
         {"role": "system", "content": _prompt("search_queries", language, when)},
-        {"role": "user", "content": f"AFIRMAÇÃO: {claim}"},
+        {"role": "user", "content": f"AFIRMAÇÃO: {claim}" + (f"\n\n{extra}" if extra else "")},
     ]
     return await client.structured(messages, SearchPlan)
 
 
 async def judge(
-    client: LlmClient, claim: str, evidence: list[Evidence], *, language: str | None, when: date
+    client: LlmClient,
+    claim: str,
+    evidence: list[Evidence],
+    *,
+    language: str | None,
+    when: date,
+    background: ClaimBackground | None = None,
 ) -> LlmResult[VerdictResult]:
+    extra = background.render() if background else ""
     messages = [
         {"role": "system", "content": _prompt("verdict", language, when)},
         {
             "role": "user",
-            "content": f"AFIRMAÇÃO: {claim}\n\nEVIDÊNCIAS:\n\n{format_evidence(evidence)}",
+            "content": f"AFIRMAÇÃO: {claim}"
+            + (f"\n\n{extra}" if extra else "")
+            + f"\n\nEVIDÊNCIAS:\n\n{format_evidence(evidence)}",
         },
     ]
     return await client.structured(messages, VerdictResult)

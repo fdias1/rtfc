@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS claim (
     speaker       TEXT,
     created_at    TEXT    NOT NULL,
     model         TEXT,
-    error         TEXT
+    error         TEXT,
+    context       TEXT,
+    score         INTEGER
 );
 CREATE INDEX IF NOT EXISTS claim_session ON claim(session_id, start_ms);
 """
@@ -46,6 +48,10 @@ class StoredClaim:
     created_at: str
     model: str | None
     error: str | None = None
+    context: str | None = None
+    """Contexto para a checagem (do extrator): quem disse, sobre o quê, quando."""
+    score: int | None = None
+    """Nota 1–5 de relevância/checabilidade dada pelo extrator (None em manuais)."""
 
     def with_status(self, status: str, error: str | None = None) -> "StoredClaim":
         return replace(self, status=status, error=error)
@@ -55,10 +61,12 @@ class ClaimStore:
     def __init__(self, db: sqlite3.Connection) -> None:
         self._db = db
         self._db.executescript(SCHEMA)
+        # Migrações de bancos criados por versões anteriores.
         cols = {r[1] for r in self._db.execute("PRAGMA table_info(claim)")}
-        if "error" not in cols:  # bancos criados antes do M6
-            with self._db:
-                self._db.execute("ALTER TABLE claim ADD COLUMN error TEXT")
+        for col, decl in (("error", "TEXT"), ("context", "TEXT"), ("score", "INTEGER")):
+            if col not in cols:
+                with self._db:
+                    self._db.execute(f"ALTER TABLE claim ADD COLUMN {col} {decl}")
 
     def upsert(self, claim: StoredClaim) -> None:
         data = asdict(claim)

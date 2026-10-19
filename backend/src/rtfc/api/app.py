@@ -51,9 +51,11 @@ from rtfc.protocol import (
     SessionDelete,
     SessionDeleted,
     SessionEnded,
+    SessionGenerateContext,
     SessionList,
     SessionListResult,
     SessionRename,
+    SessionSetContext,
     SessionStart,
     SessionStarted,
     SessionStop,
@@ -238,7 +240,12 @@ class _Connection:
                 case SessionStart():
                     return await self._start(msg)
                 case SessionStop():
-                    return await self.manager.stop(msg.session_id, request_id=msg.id)
+                    ended = await self.manager.stop(msg.session_id, request_id=msg.id)
+                    # A resposta ao stop não passa por emit(): liberar a sessão ao vivo aqui,
+                    # senão a próxima sessão ao vivo desta conexão é recusada.
+                    if self._live and self._live.id == msg.session_id:
+                        self._live = None
+                    return ended
                 case SessionList():
                     return SessionListResult(id=msg.id, sessions=await self.manager.list_sessions())
                 case SessionRename():
@@ -247,6 +254,12 @@ class _Connection:
                 case SessionDelete():
                     await self.manager.delete(msg.session_id)
                     return SessionDeleted(id=msg.id, session_id=msg.session_id)
+                case SessionSetContext():
+                    info = await self.manager.set_context(msg.session_id, msg.context)
+                    return SessionUpdated(id=msg.id, session=info)
+                case SessionGenerateContext():
+                    info = await self.manager.generate_context(msg.session_id)
+                    return SessionUpdated(id=msg.id, session=info)
                 case TranscriptGet():
                     return TranscriptResult(
                         id=msg.id,
@@ -316,7 +329,9 @@ class _Connection:
         if msg.source == "file":
             if not msg.file_path:
                 raise SessionError("file_path é obrigatório para sessões de arquivo")
-            session = await self.manager.start_file(msg.file_path, self.emit, language=msg.language)
+            session = await self.manager.start_file(
+                msg.file_path, self.emit, language=msg.language, context=msg.context
+            )
         else:
             if msg.capture == "ui" and self._live is not None:
                 raise SessionError("já existe uma sessão ao vivo nesta conexão")
@@ -326,6 +341,7 @@ class _Connection:
                 sample_rate=msg.sample_rate,
                 backend_capture=msg.capture == "backend",
                 language=msg.language,
+                context=msg.context,
             )
             if msg.capture == "ui":
                 self._live = session

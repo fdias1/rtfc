@@ -45,6 +45,8 @@ class Settings(BaseModel):
     """Checa automaticamente cada afirmação extraída."""
     search: SearchSettings = Field(default_factory=SearchSettings)
     check_concurrency: int = Field(default=3, ge=1, le=8)
+    min_claim_score: int = Field(default=4, ge=1, le=5)
+    """Só registra afirmações com nota de relevância/checabilidade ≥ este valor (ADR 0006)."""
 
 
 LOCAL_EXTRACTOR = LlmRole(provider="ollama", model="qwen3:8b")

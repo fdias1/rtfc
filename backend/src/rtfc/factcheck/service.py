@@ -9,6 +9,7 @@ import contextlib
 import itertools
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
 from pydantic import BaseModel
@@ -27,8 +28,20 @@ PRIORITY_MANUAL = 0
 PRIORITY_AUTO = 1
 
 Broadcast = Callable[[BaseModel], Awaitable[None]]
-SessionContext = Callable[[str], tuple[str | None, date]]
-"""session_id → (idioma, data do discurso)."""
+
+
+@dataclass(frozen=True)
+class CheckContext:
+    language: str | None
+    when: date
+    content: str | None = None
+    """Contexto do conteúdo (da sessão)."""
+    transcript: str = ""
+    """Transcrição ao redor da afirmação (~60 s antes, 15 s depois; ">>" marca o trecho)."""
+
+
+SessionContext = Callable[[str, int, int], CheckContext]
+"""(session_id, início, fim da afirmação em ms) → contexto para a checagem."""
 
 
 class CheckService:
@@ -163,7 +176,7 @@ class CheckService:
         claim = self._claims.get(claim_id)
         if claim is None or claim.status == "discarded":
             return
-        language, when = self._context(claim.session_id)
+        ctx = self._context(claim.session_id, claim.start_ms, claim.end_ms)
         settings = self._settings.settings
 
         async def on_stage(stage: Stage) -> None:
@@ -177,9 +190,13 @@ class CheckService:
                 client=LlmClient(settings.checker, self._secrets),
                 search_settings=settings.search,
                 secrets=self._secrets,
-                language=language,
-                when=when,
+                language=ctx.language,
+                when=ctx.when,
                 on_stage=on_stage,
+                claim_context=claim.context,
+                content_context=ctx.content,
+                speaker=claim.speaker,
+                transcript=ctx.transcript,
             )
         except asyncio.CancelledError:
             raise

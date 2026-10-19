@@ -2,7 +2,7 @@
 
 import { create } from 'zustand'
 import type { SessionInfo, SessionListItem } from '@rtfc/protocol'
-import { backend } from '../lib/connection'
+import { backend, onServerMessage } from '../lib/connection'
 import { useClaims } from './claims'
 import { useTranscript } from './transcript'
 
@@ -19,6 +19,8 @@ interface LibraryState {
   rename(sessionId: string, title: string): Promise<void>
   remove(sessionId: string): Promise<void>
   close(): void
+  setContext(sessionId: string, text: string | null): Promise<string | null>
+  generateContext(sessionId: string): Promise<string | null>
 }
 
 function errorMessage(err: unknown): string {
@@ -82,9 +84,28 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     }
   },
 
+  async setContext(sessionId, text) {
+    const reply = await backend.request({ type: 'session.set_context', session_id: sessionId, context: text })
+    return reply.type === 'error' ? reply.message : null
+  },
+
+  async generateContext(sessionId) {
+    const reply = await backend.request({ type: 'session.generate_context', session_id: sessionId })
+    return reply.type === 'error' ? reply.message : null
+  },
+
   close() {
     set({ viewing: null })
     useTranscript.getState().reset('')
     useClaims.getState().reset('')
   }
 }))
+
+// Metadados de sessões salvas mudaram (contexto, título…): atualiza a lista e a sessão aberta.
+onServerMessage((msg) => {
+  if (msg.type !== 'session.updated') return
+  useLibrary.setState((s) => ({
+    items: s.items.map((i) => (i.session.id === msg.session.id ? { ...i, session: msg.session } : i)),
+    viewing: s.viewing?.id === msg.session.id ? msg.session : s.viewing
+  }))
+})

@@ -78,3 +78,20 @@ test('matar o app no meio da gravação mantém o áudio gravado', async () => {
     .toBe('completed')
   expect(mediaDuration(join(dir, 'audio.ogg'))).toBeGreaterThan(3)
 })
+
+test('dá para iniciar uma nova sessão ao vivo depois de encerrar a anterior', async () => {
+  // Regressão: a 2ª sessão ao vivo na mesma janela era recusada ("já existe uma sessão ao vivo").
+  const { app, win } = await launchApp()
+  try {
+    for (let i = 0; i < 3; i++) {
+      await win.getByTestId('start-mic').click()
+      await expect(win.getByTestId('active-session')).toBeVisible({ timeout: 15_000 })
+      await expect(win.getByTestId('session-elapsed')).toHaveText(/00:0[1-9]/, { timeout: 15_000 })
+      await win.getByTestId('stop-session').click()
+      await expect(win.getByTestId('active-session')).toBeHidden()
+    }
+    await expect(win.getByRole('alert')).toHaveCount(0)
+  } finally {
+    await app.close()
+  }
+})

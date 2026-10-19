@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { FileAudio, ScrollText, Settings, X } from 'lucide-react'
 import { ChecksPanel } from './components/ChecksPanel'
+import { ContextBar } from './components/ContextBar'
 import { ConnectionBadge } from './components/ConnectionBadge'
 import { MediaPlayer } from './components/MediaPlayer'
 import { EmptyState, Panel } from './components/Panel'
@@ -57,6 +58,7 @@ function TranscriptPanel(): React.JSX.Element {
     >
       <div className="flex h-full flex-col gap-4">
         {playable && <MediaPlayer session={playable} />}
+        {shown && <ContextBar session={shown} />}
         <div className="min-h-0 flex-1">
           {hasText ? (
             <TranscriptView seekable={playable !== null} />

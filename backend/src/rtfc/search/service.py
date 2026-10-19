@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 
 from rtfc.config import SearchSettings, SecretStore
@@ -11,6 +12,38 @@ from rtfc.search.providers import DuckDuckGoProvider, SearxngProvider, TavilyPro
 log = logging.getLogger(__name__)
 
 PER_QUERY = 8
+MAX_CONCURRENT_QUERIES = 2
+MIN_INTERVAL_S = 0.4
+"""Ritmo das consultas: os buscadores bloqueiam rajadas (CAPTCHA, "too many requests")."""
+CACHE_TTL_S = 3600
+
+_limiter: asyncio.Semaphore | None = None
+_last_start = 0.0
+_cache: dict[tuple[str, str, str | None], tuple[float, list[SearchResult]]] = {}
+
+
+def _semaphore() -> asyncio.Semaphore:
+    global _limiter
+    if _limiter is None:
+        _limiter = asyncio.Semaphore(MAX_CONCURRENT_QUERIES)
+    return _limiter
+
+
+async def _paced(provider: SearchProvider, query: str, language: str | None) -> list[SearchResult]:
+    global _last_start
+    key = (provider.name, query.strip().lower(), language)
+    cached = _cache.get(key)
+    if cached and time.monotonic() - cached[0] < CACHE_TTL_S:
+        return cached[1]
+    async with _semaphore():
+        wait = _last_start + MIN_INTERVAL_S - time.monotonic()
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _last_start = time.monotonic()
+        results = await provider.search(query, language=language, limit=PER_QUERY)
+    if results:
+        _cache[key] = (time.monotonic(), results)
+    return results
 
 
 @dataclass(frozen=True)
@@ -40,7 +73,7 @@ async def _run(
     provider: SearchProvider, queries: list[str], language: str | None
 ) -> list[SearchResult]:
     batches = await asyncio.gather(
-        *(provider.search(q, language=language, limit=PER_QUERY) for q in queries),
+        *(_paced(provider, q, language) for q in queries),
         return_exceptions=True,
     )
     results: list[SearchResult] = []
@@ -52,6 +85,8 @@ async def _run(
         results.extend(r.with_(queries=(q,)) for r in batch)
     if errors and not results:
         raise SearchError(str(errors[0]))
+    if not results:
+        raise SearchError(f"{provider.name}: nenhum resultado para as consultas")
     return results
 
 

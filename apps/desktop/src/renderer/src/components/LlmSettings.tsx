@@ -216,6 +216,19 @@ export function LlmSettings({
         />
         Checar automaticamente cada afirmação detectada
       </label>
+      <label className="flex flex-col gap-1 text-xs text-text-muted">
+        Rigor na seleção de afirmações
+        <select
+          value={draft.min_claim_score}
+          onChange={(e) => onChange({ ...draft, min_claim_score: Number(e.target.value) })}
+          className="w-full rounded-md border border-border bg-surface px-2 py-1 text-sm text-text"
+          data-testid="min-claim-score"
+        >
+          <option value={3}>Mais afirmações (inclui as vagas ou secundárias)</option>
+          <option value={4}>Padrão: só fatos específicos e relevantes</option>
+          <option value={5}>Só o que é central e tem fonte pública clara</option>
+        </select>
+      </label>
       <RoleEditor
         role="extractor"
         value={draft.extractor}

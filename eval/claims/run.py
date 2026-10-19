@@ -23,6 +23,7 @@ from rtfc.storage import ClaimStore, StoredSegment, StoredWord, TranscriptStore
 
 HERE = Path(__file__).resolve().parent
 REF = HERE.parent / "stt" / "reference.txt"
+CONTEXT = "Discurso político de campanha no Brasil, 2026; o orador fala de educação, saúde, economia e meio ambiente."
 
 
 def norm(text: str) -> str:
@@ -61,7 +62,15 @@ async def evaluate(spec: str) -> dict:
         if ev.type == "extractor.status" and ev.state == "error":
             errors.append(ev.message)
 
-    pipe = ClaimPipeline("eval", client_factory=lambda: LlmClient(role, secrets), store=store, emit=emit, language=lambda: "pt")
+    pipe = ClaimPipeline(
+        "eval",
+        client_factory=lambda: LlmClient(role, secrets),
+        store=store,
+        emit=emit,
+        language=lambda: "pt",
+        content_context=lambda: CONTEXT,
+        min_score=lambda: 4,
+    )
     pipe.start()
     # Aquecimento (carrega o modelo local) fora da medição.
     await LlmClient(role, secrets).structured([{"role": "user", "content": 'Responda {"claims": [], "last_sentence_incomplete": false}'}], __import__("rtfc.claims.extractor", fromlist=["ExtractionResult"]).ExtractionResult)
@@ -77,6 +86,7 @@ async def evaluate(spec: str) -> dict:
     claims = [c.text for c in store.for_session("eval") if c.dedup_of is None]
     found = [e["id"] for e in gold["expected"] if any(matches(c, e["keywords"]) for c in claims)]
     false_pos = [c for c in claims if any(matches(c, n["keywords"]) for n in gold["negatives"])]
+    optional = [c for c in claims if any(matches(c, o["keywords"]) for o in gold.get("optional", []))]
     return {
         "model": spec,
         "claims": len(claims),
@@ -84,6 +94,7 @@ async def evaluate(spec: str) -> dict:
         "missed": [e["id"] for e in gold["expected"] if e["id"] not in found],
         "false_positive_rate": round(len(false_pos) / max(1, len(claims)), 2),
         "false_positives": false_pos,
+        "optional_extracted": len(optional),
         "call_p50_s": round(statistics.median(calls), 2),
         "call_p90_s": round(sorted(calls)[int(0.9 * (len(calls) - 1))], 2),
         "errors": errors[:3],

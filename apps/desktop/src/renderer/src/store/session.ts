@@ -47,6 +47,9 @@ interface SessionState {
   level: AudioLevel
   language: LanguageChoice
   setLanguage(language: LanguageChoice): void
+  /** Contexto digitado antes de iniciar (vai junto no session.start). */
+  contextDraft: string
+  setContextDraft(text: string): void
   startLive(source: LiveSource, deviceId?: string): Promise<void>
   startFile(path: string): Promise<void>
   stop(): Promise<void>
@@ -73,7 +76,8 @@ async function startBackendCapture(set: SetState): Promise<void> {
       capture: 'backend',
       sample_rate: 48_000,
       file_path: null,
-      language: languageParam(useSession.getState().language)
+      language: languageParam(useSession.getState().language),
+      context: useSession.getState().contextDraft.trim() || null
     })
     if (reply.type !== 'session.started') throw new Error(reply.type === 'error' ? reply.message : reply.type)
     useTranscript.getState().reset(reply.session.id)
@@ -96,6 +100,11 @@ export const useSession = create<SessionState>((set, get) => ({
   errorCode: null,
   level: SILENCE,
   language: initialLanguage(),
+  contextDraft: '',
+
+  setContextDraft(contextDraft) {
+    set({ contextDraft })
+  },
 
   setLanguage(language) {
     set({ language })
@@ -154,11 +163,13 @@ export const useSession = create<SessionState>((set, get) => ({
         capture: 'ui',
         sample_rate: capture.sampleRate,
         file_path: null,
-        language: languageParam(get().language)
+        language: languageParam(get().language),
+        context: get().contextDraft.trim() || null
       })
       if (reply.type !== 'session.started') throw new Error(reply.type === 'error' ? reply.message : reply.type)
       useTranscript.getState().reset(reply.session.id)
       useClaims.getState().reset(reply.session.id)
+      useSession.setState({ contextDraft: '' })
       for (const pcm of queue.splice(0)) backend.sendBinary(pcm)
       ready = true
       set({
@@ -181,11 +192,13 @@ export const useSession = create<SessionState>((set, get) => ({
         capture: 'ui',
         sample_rate: 48_000,
         file_path: path,
-        language: languageParam(get().language)
+        language: languageParam(get().language),
+        context: get().contextDraft.trim() || null
       })
       if (reply.type !== 'session.started') throw new Error(reply.type === 'error' ? reply.message : reply.type)
       useTranscript.getState().reset(reply.session.id)
       useClaims.getState().reset(reply.session.id)
+      useSession.setState({ contextDraft: '' })
       set({
         starting: null,
         active: {

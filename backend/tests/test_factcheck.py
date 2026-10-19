@@ -10,7 +10,7 @@ import pytest
 from rtfc.config import MemorySecretStore, SearchSettings, SettingsStore
 from rtfc.factcheck import service as service_mod
 from rtfc.factcheck.pipeline import CheckOutcome
-from rtfc.factcheck.service import PRIORITY_MANUAL, CheckService
+from rtfc.factcheck.service import PRIORITY_MANUAL, CheckContext, CheckService
 from rtfc.factcheck.verdict import CitedSource, Evidence, VerdictResult, validate
 from rtfc.search import service as search_service
 from rtfc.search.base import SearchError, SearchResult
@@ -79,7 +79,10 @@ def test_classify_tiers_and_blocklist() -> None:
     assert classify("https://www.aosfatos.org/x", lists) == "factchecker"
     assert classify("https://g1.globo.com/fato-ou-fake/x", lists) == "factchecker"
     assert classify("https://g1.globo.com/economia/x", lists) == "press"
-    assert classify("https://www.ibge.gov.br/x", lists) == "official"
+    assert classify("https://www.ibge.gov.br/x", lists) == "primary"
+    assert classify("https://www.scielo.br/j/artigo", lists) == "primary"
+    assert classify("https://www.ufmg.br/estudo", lists) == "primary"
+    assert classify("https://pt.wikipedia.org/wiki/X", lists) == "other"
     assert classify("https://exemplo.com/x", lists) == "other"
     assert classify("https://www.facebook.com/x", lists) is None
     assert classify("https://blogqualquer.com/x", lists) is None
@@ -99,9 +102,10 @@ def test_rank_orders_by_tier_merges_and_limits_per_domain() -> None:
     ]
     ranked = rank(results, lists, limit=10)
     urls = [r.url for r in ranked]
-    assert urls[0] == "https://lupa.uol.com.br/z"
-    assert urls[1] == "https://www.ibge.gov.br/x/"
-    assert ranked[1].queries == ("q1", "q2")
+    # Fonte primária primeiro, depois a agência de checagem, depois imprensa.
+    assert urls[0] == "https://www.ibge.gov.br/x/"
+    assert ranked[0].queries == ("q1", "q2")
+    assert urls[1] == "https://lupa.uol.com.br/z"
     assert sum("g1.globo.com" in u for u in urls) == 2
     assert not any("tiktok" in u for u in urls)
     assert urls[-1] == "https://exemplo.com/1"
@@ -183,7 +187,7 @@ async def harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # type: ign
         settings=settings,
         secrets=MemorySecretStore(),
         broadcast=broadcast,
-        session_context=lambda sid: ("pt", date(2026, 10, 19)),
+        session_context=lambda sid, a, b: CheckContext("pt", date(2026, 10, 19)),
     )
     yield svc, claims, checks, events, order, gates
     await svc.stop()
@@ -262,3 +266,16 @@ async def test_discard_during_check_is_not_overwritten(harness) -> None:  # type
     gates["x"].set()
     await asyncio.sleep(0.05)
     assert claims.get("x").status == "discarded"  # type: ignore[union-attr]
+
+
+def test_press_cannot_take_every_slot() -> None:
+    lists = DomainLists.for_language("pt")
+    press = [result(f"https://{d}/n") for d in (
+        "g1.globo.com", "folha.uol.com.br", "estadao.com.br", "cnnbrasil.com.br", "poder360.com.br",
+    )]  # fmt: skip
+    others = [result("https://www.ipea.gov.br/estudo"), result("https://blog.exemplo.com/post")]
+    ranked = rank(press + others, lists, limit=10)
+    tiers = [r.tier for r in ranked]
+    assert tiers[0] == "primary"
+    assert tiers.count("press") == 3  # cota da imprensa
+    assert "other" in tiers  # outras fontes continuam entrando

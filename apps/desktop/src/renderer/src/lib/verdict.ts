@@ -63,6 +63,7 @@ export const STAGE_LABEL: Record<NonNullable<ClaimData['stage']>, string> = {
 }
 
 export const TIER_LABEL: Record<string, string> = {
+  primary: 'fonte primária',
   factchecker: 'checagem',
   official: 'oficial',
   press: 'imprensa',

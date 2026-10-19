@@ -31,8 +31,10 @@ test('afirmações: cards, destaques, descarte, trecho manual e reabertura', asy
   await expect(cards.first().getByTestId('check-justification')).toContainText('fontes de teste')
   const sources = cards.first().getByTestId('check-sources').locator('li')
   await expect(sources).toHaveCount(2)
-  await expect(sources.first()).toContainText('aosfatos.org')
-  await expect(sources.first()).toContainText('checagem')
+  // Fonte primária primeiro (ADR 0006), depois a agência de checagem.
+  await expect(sources.first()).toContainText('ibge.gov.br')
+  await expect(sources.first()).toContainText('fonte primária')
+  await expect(sources.nth(1)).toContainText('aosfatos.org')
   // O sublinhado na transcrição ganha a cor do veredicto.
   await expect(win.locator('[data-verdict="verdadeiro"]').first()).toBeVisible()
 
@@ -129,6 +131,34 @@ test('configurações de modelos: testar conexão e salvar', async () => {
     await win.getByTestId('open-settings').click()
     await expect(win.getByTestId('provider-checker')).toHaveValue('anthropic')
     await expect(win.getByTestId('model-checker')).toHaveValue('claude-haiku-5-5')
+  } finally {
+    await app.close()
+  }
+})
+
+test('contexto do conteúdo: definido antes, editado e gerado pela transcrição', async () => {
+  test.setTimeout(240_000)
+  const wav = speechWav(FALA)
+  const { app, win } = await launchApp()
+  try {
+    await win.getByTestId('context-draft').fill('Discurso de teste sobre economia, Brasil, 2026.')
+    await stubOpenDialog(app, wav)
+    await win.getByTestId('start-file').click()
+    const bar = win.getByTestId('context-bar')
+    await expect(bar.getByTestId('context-text')).toHaveText('Discurso de teste sobre economia, Brasil, 2026.')
+    await expect(bar).toContainText('definido por você')
+    await expect(win.getByTestId('claim-card').first()).toBeVisible({ timeout: 180_000 })
+    // O contexto da afirmação (do extrator) aparece no card.
+    await expect(win.getByTestId('claim-context').first()).toHaveText('Contexto de teste.')
+
+    await bar.getByTestId('edit-context').click()
+    await bar.getByTestId('context-input').fill('Outro contexto.')
+    await bar.getByTestId('save-context').click()
+    await expect(bar.getByTestId('context-text')).toHaveText('Outro contexto.')
+
+    await bar.getByTestId('generate-context').click()
+    await expect(bar.getByTestId('context-text')).toHaveText('Conteúdo de teste gerado automaticamente.')
+    await expect(bar).toContainText('gerado automaticamente')
   } finally {
     await app.close()
   }

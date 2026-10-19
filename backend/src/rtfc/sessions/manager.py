@@ -22,8 +22,9 @@ from rtfc.audio import ffmpeg
 from rtfc.audio.ring_buffer import PcmRingBuffer
 from rtfc.audio.sources import AudioSourceError, FileDecoder, LiveRecorder
 from rtfc.claims import Anchor, ClaimPipeline, manual_claim, to_claim_data
+from rtfc.claims.extractor import generate_context
 from rtfc.config import SecretStore, SettingsStore
-from rtfc.factcheck.service import PRIORITY_MANUAL, CheckService
+from rtfc.factcheck.service import PRIORITY_MANUAL, CheckContext, CheckService
 from rtfc.llm import LlmClient, LlmError
 from rtfc.protocol import (
     ClaimData,
@@ -229,12 +230,61 @@ class SessionManager:
             return None
         return round((time.monotonic() - session.clock_start) * 1000) - end_ms
 
-    def _session_context(self, session_id: str) -> tuple[str | None, date]:
+    def _session_context(self, session_id: str, start_ms: int, end_ms: int) -> CheckContext:
+        """Tudo que a checagem precisa saber além da afirmação (ADR 0006)."""
         try:
             info = self.load_info(session_id)
         except (SessionError, ValueError):
-            return None, date.today()
-        return info.language, datetime.fromisoformat(info.started_at).date()
+            return CheckContext(language=None, when=date.today())
+        segments = self._segments(session_id)
+        around = [
+            s for s in segments if s.end_ms >= start_ms - 60_000 and s.start_ms <= end_ms + 15_000
+        ]
+        transcript = "\n".join(
+            f"{'>> ' if s.start_ms <= end_ms and s.end_ms >= start_ms else ''}"
+            f"{f'({s.speaker}) ' if s.speaker else ''}{s.text}"
+            for s in around
+        )
+        return CheckContext(
+            language=info.language,
+            when=datetime.fromisoformat(info.started_at).date(),
+            content=info.context,
+            transcript=transcript,
+        )
+
+    # --- Contexto do conteúdo ---------------------------------------------------
+
+    async def _apply_context(self, session_id: str, text: str | None, source: str) -> SessionInfo:
+        info = self.load_info(session_id)
+        text = (text or "").strip() or None
+        info.context = text
+        info.context_source = source if text else None  # type: ignore[assignment]
+        Session.write_info(info)
+        await self.broadcast(SessionUpdated(session=info))
+        return info
+
+    async def set_context(self, session_id: str, text: str | None) -> SessionInfo:
+        if text and text.strip():
+            return await self._apply_context(session_id, text, "user")
+        # Vazio: volta para o automático (regerado a partir da transcrição).
+        await self._apply_context(session_id, None, "auto")
+        return await self.generate_context(session_id)
+
+    async def generate_context(self, session_id: str) -> SessionInfo:
+        info = self.load_info(session_id)
+        segments = self._segments(session_id)
+        if not segments:
+            raise SessionError("ainda não há transcrição para gerar o contexto")
+        try:
+            result = await generate_context(
+                self.extractor_client(),
+                segments=segments,
+                language=info.language,
+                when=datetime.fromisoformat(info.started_at).date(),
+            )
+        except (LlmError, ValueError) as exc:
+            raise SessionError(f"não foi possível gerar o contexto: {exc}") from exc
+        return await self._apply_context(session_id, result.value.context, "auto")
 
     def claim_data(self, claim: StoredClaim) -> ClaimData:
         if self.checks:
@@ -263,6 +313,10 @@ class SessionManager:
             emit=session.emit,
             language=lambda: session.info.language,
             on_claim=self._auto_check,
+            content_context=lambda: session.info.context,
+            min_score=lambda: self.settings.settings.min_claim_score if self.settings else 1,
+            on_auto_context=lambda text: self._apply_context(session.id, text, "auto"),
+            auto_context_allowed=lambda: session.info.context_source != "user",
         )
         session.claims.start()
 
@@ -272,7 +326,9 @@ class SessionManager:
         except KeyError:
             raise SessionError(f"sessão desconhecida: {session_id}") from None
 
-    def _new_info(self, source: str, language: str | None, **extra: object) -> SessionInfo:
+    def _new_info(
+        self, source: str, language: str | None, context: str | None = None, **extra: object
+    ) -> SessionInfo:
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         session_id = f"{stamp}-{source}-{secrets.token_hex(2)}"
         session_dir = self.sessions_dir / session_id
@@ -287,6 +343,8 @@ class SessionManager:
                 "audio_path": str(session_dir / "audio.ogg"),
                 "started_at": _now(),
                 "language": language,
+                "context": (context or "").strip() or None,
+                "context_source": "user" if (context or "").strip() else None,
                 "stt_engine": stt_status.engine if stt_status else None,
                 "stt_model": stt_status.model if stt_status else None,
                 **extra,
@@ -301,10 +359,11 @@ class SessionManager:
         sample_rate: int = 48_000,
         backend_capture: bool = False,
         language: str | None = "pt",
+        context: str | None = None,
     ) -> Session:
         if source not in ("mic", "system"):
             raise SessionError(f"fonte ao vivo inválida: {source}")
-        session = Session(self._new_info(source, language), emit, self.store)
+        session = Session(self._new_info(source, language, context), emit, self.store)
         session.recorder = LiveRecorder(
             Path(session.info.audio_path), session.buffer.write, input_rate=sample_rate
         )
@@ -331,7 +390,12 @@ class SessionManager:
         return session
 
     async def start_file(
-        self, file_path: str, emit: EventSink, *, language: str | None = "pt"
+        self,
+        file_path: str,
+        emit: EventSink,
+        *,
+        language: str | None = "pt",
+        context: str | None = None,
     ) -> Session:
         # stat local de um arquivo: rápido o bastante para não valer uma thread.
         path = Path(file_path).expanduser()  # noqa: ASYNC240
@@ -347,6 +411,7 @@ class SessionManager:
         info = self._new_info(
             "file",
             language,
+            context,
             status="processing",
             audio_path=str(path),
             file_path=str(path),
@@ -567,6 +632,7 @@ class SessionManager:
                 store=self.claim_store,
                 language=info.language,
                 when=datetime.fromisoformat(info.started_at).date(),
+                content_context=info.context,
             )
         except (LlmError, ValueError) as exc:
             raise SessionError(f"não foi possível preparar o trecho: {exc}") from exc

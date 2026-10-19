@@ -4,7 +4,7 @@ from dataclasses import dataclass, field, replace
 from typing import Literal, Protocol
 from urllib.parse import urlsplit
 
-Tier = Literal["factchecker", "official", "press", "other"]
+Tier = Literal["primary", "factchecker", "press", "other"]
 
 
 @dataclass(frozen=True)

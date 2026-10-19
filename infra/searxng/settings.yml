@@ -1,7 +1,8 @@
-# SearXNG local do rtfc (busca padrão do M6; ADR 0005).
-# Sobe com:  docker run -d --name rtfc-searxng -p 127.0.0.1:8888:8080 \
+# SearXNG local do rtfc (busca padrão; ADR 0005/0006).
+# Sobe com:  docker run -d --name rtfc-searxng --restart unless-stopped -p 127.0.0.1:8888:8080 \
 #              -e SEARXNG_SECRET="$(openssl rand -hex 32)" \
 #              -v "$PWD/infra/searxng:/etc/searxng" searxng/searxng
+# Depois de editar este arquivo:  docker restart rtfc-searxng
 use_default_settings: true
 
 general:
@@ -20,6 +21,26 @@ search:
   formats:
     - html
     - json                # o rtfc consome a API JSON
+  # Quando um buscador bloqueia (CAPTCHA / 429), fica suspenso por um tempo e os outros seguem.
+  suspended_times:
+    SearxEngineAccessDenied: 3600
+    SearxEngineCaptcha: 3600
+    SearxEngineTooManyRequests: 900
+
+# Mais buscadores ativos = carga dividida = menos bloqueios.
+engines:
+  - name: bing
+    disabled: false
+  - name: mojeek
+    disabled: false
+  - name: qwant
+    disabled: false
+  - name: startpage
+    disabled: false
+  - name: wikipedia
+    disabled: false
+  - name: yahoo
+    disabled: false
 
 ui:
   static_use_hash: true

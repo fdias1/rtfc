@@ -221,3 +221,15 @@ def test_list_marks_abandoned_sessions_as_interrupted(manager: SessionManager) -
     items = asyncio.run(manager.list_sessions())
     assert items[0].session.status == "interrupted"
     assert '"interrupted"' in (d / "session.json").read_text()
+
+
+def test_can_start_another_live_session_after_stopping(client: TestClient) -> None:
+    """Regressão: depois de encerrar pelo botão, a 2ª sessão ao vivo era recusada."""
+    with client.websocket_connect(f"/ws?token={TOKEN}") as ws:
+        recv_until(ws, "hello")
+        for i, source in enumerate(["system", "system", "mic"]):
+            ws.send_text(json.dumps({"type": "session.start", "id": f"s{i}", "source": source}))
+            sid = recv_until(ws, "session.started")["session"]["id"]
+            ws.send_bytes(sine_pcm(0.3))
+            ws.send_text(json.dumps({"type": "session.stop", "id": f"e{i}", "session_id": sid}))
+            assert recv_until(ws, "session.ended")["reason"] == "stopped"

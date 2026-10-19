@@ -31,6 +31,11 @@ class SearxngProvider:
                 data = r.json()
         except (httpx.HTTPError, ValueError) as exc:
             raise SearchError(f"SearXNG indisponível em {self.base_url}: {exc}") from exc
+        blocked = data.get("unresponsive_engines") or []
+        if not data.get("results") and blocked:
+            # Os buscadores por trás do SearXNG limitaram o acesso (CAPTCHA, "too many requests").
+            names = ", ".join(f"{e[0]} ({e[1]})" for e in blocked[:4])
+            raise SearchError(f"SearXNG sem resultados; buscadores bloqueados: {names}")
         return [
             SearchResult(
                 url=item["url"],

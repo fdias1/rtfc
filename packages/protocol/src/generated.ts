@@ -15,6 +15,8 @@ export type ClientMessage =
   | SessionList
   | SessionRename
   | SessionDelete
+  | SessionSetContext
+  | SessionGenerateContext
   | ClaimsGet
   | ClaimManual
   | ClaimDiscard
@@ -92,6 +94,7 @@ export interface EchoRequest {
  */
 export interface SessionStart {
   capture: 'ui' | 'backend'
+  context: string | null
   file_path: string | null
   id: string
   language: string | null
@@ -149,6 +152,29 @@ export interface SessionDelete {
   id: string
   session_id: string
   type: 'session.delete'
+}
+/**
+ * Define o contexto da sessão. `context=None` volta para o contexto automático.
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SessionSetContext".
+ */
+export interface SessionSetContext {
+  context: string | null
+  id: string
+  session_id: string
+  type: 'session.set_context'
+}
+/**
+ * Pede ao LLM um contexto a partir da transcrição até agora.
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SessionGenerateContext".
+ */
+export interface SessionGenerateContext {
+  id: string
+  session_id: string
+  type: 'session.generate_context'
 }
 /**
  * This interface was referenced by `RtfcProtocol`'s JSON-Schema
@@ -209,6 +235,7 @@ export interface SettingsData {
   auto_extract: boolean
   checker: LlmRoleData
   extractor: LlmRoleData
+  min_claim_score: number
   search: SearchSettingsData
 }
 /**
@@ -348,6 +375,8 @@ export interface SessionStarted {
  */
 export interface SessionInfo {
   audio_path: string
+  context: string | null
+  context_source: ('user' | 'auto') | null
   dir: string
   duration_ms: number | null
   ended_at: string | null
@@ -517,6 +546,7 @@ export interface ClaimUpdated {
  */
 export interface ClaimData {
   check: CheckData | null
+  context: string | null
   dedup_of: string | null
   end_ms: number
   error: string | null
@@ -558,7 +588,7 @@ export interface CheckSourceData {
   published: string | null
   quote: string
   stance: 'apoia' | 'refuta' | 'contextualiza'
-  tier: 'factchecker' | 'official' | 'press' | 'other'
+  tier: 'primary' | 'official' | 'factchecker' | 'press' | 'other'
   title: string
   url: string
 }

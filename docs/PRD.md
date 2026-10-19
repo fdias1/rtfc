@@ -101,6 +101,7 @@ O Whisper **não** identifica interlocutores sozinho. A diarização é uma etap
 ### RF4 — Extração de afirmações
 - **RF4.1** Um LLM (local ou online, configurável) é acionado **a cada frase confirmada**, recebendo as frases novas mais o contexto anterior, e extrai **somente afirmações factuais verificáveis**: números, estatísticas, datas, eventos, citações e atribuições ("X fez/disse Y").
 - **RF4.2** Cada afirmação é **reescrita de forma autocontida** (resolvendo "ele", "isso", "aquele ano" pelo contexto), mas mantém a ligação com o trecho original (offsets e timestamps) e com o falante.
+- **RF4.5** Contexto do conteúdo (digitado pelo usuário ou gerado pelo LLM) guia a seleção; só afirmações específicas e relevantes, com nota ≥ 4 de 5, são registradas (ADR 0006).
 - **RF4.3** Deduplicação: afirmações equivalentes já checadas na sessão reaproveitam o resultado.
 - **RF4.4** Seleção manual: o usuário seleciona um trecho e escolhe "Verificar". O trecho passa pela normalização do RF4.2 e entra na fila com prioridade.
 
@@ -258,7 +259,7 @@ O Whisper não faz diarização. Alternativas avaliadas:
 
 - Interface `SearchProvider.search(query, lang, n) -> [Result]`.
 - **Padrão do MVP: SearXNG local** (software livre via Docker, sem conta), com **reserva automática no DuckDuckGo** e **Tavily opcional** (com chave). O texto das páginas é extraído pelo próprio rtfc (httpx + trafilatura). Ver ADR 0005.
-- Ranking: (1) agências de checagem do idioma (pt-BR: Lupa, Aos Fatos, Estadão Verifica, AFP Checamos, Fato ou Fake, Comprova, Boatos.org), (2) fontes oficiais (IBGE, TSE, gov.br, Diário Oficial, Banco Central…), (3) veículos jornalísticos, (4) demais. As listas são configuráveis e têm um conjunto padrão por idioma.
+- Ranking (ADR 0006): **fontes primárias auditáveis primeiro** (órgãos oficiais, institutos de pesquisa e estatística, universidades, organismos internacionais), depois agências de checagem, imprensa e demais, com cota por tipo. Listas anteriores: (1) agências de checagem do idioma (pt-BR: Lupa, Aos Fatos, Estadão Verifica, AFP Checamos, Fato ou Fake, Comprova, Boatos.org), (2) fontes oficiais (IBGE, TSE, gov.br, Diário Oficial, Banco Central…), (3) veículos jornalísticos, (4) demais. As listas são configuráveis e têm um conjunto padrão por idioma.
 
 ### 7.7 Veredictos
 

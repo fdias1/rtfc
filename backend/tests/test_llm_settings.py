@@ -114,3 +114,20 @@ def test_default_extractor_follows_openai_key(tmp_path: Path) -> None:
     local = LlmRole(provider="ollama", model="qwen3:8b")
     store.save(store.settings.model_copy(update={"extractor": local}))
     assert SettingsStore(tmp_path / "settings.json", secrets).settings.extractor == local
+
+
+async def test_foreign_script_is_sent_back_for_correction(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pydantic import BaseModel
+
+    class Out(BaseModel):
+        text: str
+
+    replies = iter(['{"text": "Não há nome do বক্তা."}', '{"text": "Não há nome do orador."}'])
+    client = LlmClient(LlmRole(provider="ollama", model="x"), MemorySecretStore())
+
+    async def fake_complete(messages: Any, kwargs: Any) -> str:
+        return next(replies)
+
+    monkeypatch.setattr(client, "_complete", fake_complete)
+    result = await client.structured([{"role": "user", "content": "oi"}], Out)
+    assert result.value.text == "Não há nome do orador."

@@ -17,6 +17,8 @@ class ExtractedClaim(BaseModel):
     segment_index: int
     source_text: str
     claim: str
+    context: str
+    score: int
 
 
 class ExtractionResult(BaseModel):
@@ -24,6 +26,12 @@ class ExtractionResult(BaseModel):
 
     claims: list[ExtractedClaim]
     last_sentence_incomplete: bool
+
+
+class ContentContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    context: str
 
 
 class NormalizedClaim(BaseModel):
@@ -53,10 +61,13 @@ async def extract_claims(
     already: list[str],
     language: str | None,
     when: date,
+    content_context: str | None = None,
 ) -> LlmResult[ExtractionResult]:
     user = (
-        "CONTEXTO (não extraia daqui):\n"
-        + (_lines(context) or "(nenhum)")
+        "CONTEXTO DO CONTEÚDO:\n"
+        + (content_context or "(ainda não definido)")
+        + "\n\nFRASES ANTERIORES (não extraia daqui):\n"
+        + (_lines(context) or "(nenhuma)")
         + "\n\nNOVAS FRASES:\n"
         + _lines(new)
         + "\n\nAFIRMAÇÕES JÁ EXTRAÍDAS (não repita):\n"
@@ -69,6 +80,26 @@ async def extract_claims(
     return await client.structured(messages, ExtractionResult)
 
 
+async def generate_context(
+    client: LlmClient,
+    *,
+    segments: list[StoredSegment],
+    language: str | None,
+    when: date,
+    hint: str | None = None,
+) -> LlmResult[ContentContext]:
+    # Começo + trecho mais recente: o começo costuma apresentar quem fala e o tema.
+    picked = segments if len(segments) <= 60 else segments[:30] + segments[-30:]
+    user = "TRANSCRIÇÃO:\n" + _lines(picked)
+    if hint:
+        user = f"CONTEXTO ANTERIOR (atualize se necessário):\n{hint}\n\n{user}"
+    messages = [
+        {"role": "system", "content": _prompt("content_context", language, when)},
+        {"role": "user", "content": user},
+    ]
+    return await client.structured(messages, ContentContext)
+
+
 async def normalize_excerpt(
     client: LlmClient,
     *,
@@ -76,12 +107,17 @@ async def normalize_excerpt(
     context: list[StoredSegment],
     language: str | None,
     when: date,
+    content_context: str | None = None,
 ) -> LlmResult[NormalizedClaim]:
     messages = [
         {"role": "system", "content": _prompt("normalize_claim", language, when)},
         {
             "role": "user",
-            "content": "CONTEXTO:\n" + (_lines(context) or "(nenhum)") + f"\n\nTRECHO:\n{excerpt}",
+            "content": "CONTEXTO DO CONTEÚDO:\n"
+            + (content_context or "(não definido)")
+            + "\n\nTRANSCRIÇÃO AO REDOR:\n"
+            + (_lines(context) or "(nenhuma)")
+            + f"\n\nTRECHO:\n{excerpt}",
         },
     ]
     return await client.structured(messages, NormalizedClaim)

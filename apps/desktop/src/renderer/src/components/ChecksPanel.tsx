@@ -194,6 +194,11 @@ function ClaimCard({ claim, focused, seekable }: { claim: ClaimData; focused: bo
       <p className="text-sm leading-snug text-text" data-testid="claim-text">
         {claim.text}
       </p>
+      {claim.context && (
+        <p className="mt-1 text-[11px] leading-snug text-text-muted" data-testid="claim-context">
+          {claim.context}
+        </p>
+      )}
       {claim.source_text && claim.source_text !== claim.text && (
         <p className="mt-1.5 border-l-2 border-border pl-2 text-xs leading-snug text-text-muted">
           “{claim.source_text}”

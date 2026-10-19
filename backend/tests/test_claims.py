@@ -86,7 +86,11 @@ async def test_pipeline_extracts_anchors_and_dedups(store: ClaimStore) -> None:
             ExtractionResult(
                 claims=[
                     ExtractedClaim(
-                        segment_index=0, source_text="a inflação caiu", claim="A inflação caiu."
+                        segment_index=0,
+                        source_text="a inflação caiu",
+                        claim="A inflação caiu.",
+                        context="ctx",
+                        score=5,
                     )
                 ],
                 last_sentence_incomplete=False,
@@ -94,7 +98,11 @@ async def test_pipeline_extracts_anchors_and_dedups(store: ClaimStore) -> None:
             ExtractionResult(
                 claims=[
                     ExtractedClaim(
-                        segment_index=1, source_text="a inflação caiu", claim="A inflação caiu."
+                        segment_index=1,
+                        source_text="a inflação caiu",
+                        claim="A inflação caiu.",
+                        context="ctx",
+                        score=5,
                     )
                 ],
                 last_sentence_incomplete=False,
@@ -159,7 +167,11 @@ async def test_llm_failure_reports_status_and_keeps_going(store: ClaimStore) -> 
         [
             LlmError("Ollama fora do ar"),
             ExtractionResult(
-                claims=[ExtractedClaim(segment_index=1, source_text="caiu", claim="X caiu.")],
+                claims=[
+                    ExtractedClaim(
+                        segment_index=1, source_text="caiu", claim="X caiu.", context="ctx", score=5
+                    )
+                ],
                 last_sentence_incomplete=False,
             ),
         ]
@@ -195,3 +207,75 @@ async def test_manual_claim_uses_normalized_text(store: ClaimStore) -> None:
     assert claim.text.startswith("O ministro")
     assert claim.source_text == "Ele disse que a fábrica fechou em março."
     assert "2026-10-19" in client.calls[0][0]["content"]
+
+
+async def test_low_score_claims_are_skipped_and_context_is_used(store: ClaimStore) -> None:
+    client = FakeClient(
+        [
+            ExtractionResult(
+                claims=[
+                    ExtractedClaim(
+                        segment_index=0, source_text="hospitais lotados",
+                        claim="Os hospitais estão lotados.", context="vago", score=2,
+                    ),
+                    ExtractedClaim(
+                        segment_index=0, source_text="o desemprego caiu para 8%",
+                        claim="O desemprego no Brasil caiu para 8%.",
+                        context="Candidato X sobre o Brasil em 2026.", score=5,
+                    ),
+                ],
+                last_sentence_incomplete=False,
+            )
+        ]
+    )  # fmt: skip
+
+    async def emit(ev: Any) -> None:
+        pass
+
+    pipe = ClaimPipeline(
+        "s1",
+        client_factory=lambda: client,  # type: ignore[arg-type,return-value]
+        store=store,
+        emit=emit,
+        language=lambda: "pt",
+        content_context=lambda: "Debate presidencial no Brasil, 2026.",
+        min_score=lambda: 4,
+    )
+    pipe.start()
+    pipe.submit(seg(0, "Os hospitais estão lotados e o desemprego caiu para 8%."))
+    await pipe.close()
+    claims = store.for_session("s1")
+    assert [c.text for c in claims] == ["O desemprego no Brasil caiu para 8%."]
+    assert claims[0].score == 5 and claims[0].context.startswith("Candidato X")  # type: ignore[union-attr]
+    assert pipe.skipped_low_score == 1
+    assert "Debate presidencial no Brasil" in client.calls[0][1]["content"]
+
+
+async def test_auto_context_is_generated_after_a_few_sentences(store: ClaimStore) -> None:
+    from rtfc.claims.extractor import ContentContext
+
+    empty = ExtractionResult(claims=[], last_sentence_incomplete=False)
+    client = FakeClient([empty, ContentContext(context="Entrevista sobre economia."), empty])
+    got: list[str] = []
+
+    async def on_ctx(text: str) -> None:
+        got.append(text)
+
+    async def emit(ev: Any) -> None:
+        pass
+
+    pipe = ClaimPipeline(
+        "s1",
+        client_factory=lambda: client,  # type: ignore[arg-type,return-value]
+        store=store,
+        emit=emit,
+        language=lambda: "pt",
+        on_auto_context=on_ctx,
+    )
+    pipe.start()
+    pipe.submit(seg(0, "Primeira frase."))
+    await asyncio.sleep(0.05)
+    for i in range(1, 6):
+        pipe.submit(seg(i, f"Frase número {i}.", i * 1000))
+    await pipe.close()
+    assert got == ["Entrevista sobre economia."]

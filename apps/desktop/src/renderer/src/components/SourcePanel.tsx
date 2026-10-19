@@ -226,6 +226,26 @@ function LanguageSelect({ disabled }: { disabled: boolean }): React.JSX.Element 
   )
 }
 
+function ContextDraft({ disabled }: { disabled: boolean }): React.JSX.Element {
+  const value = useSession((s) => s.contextDraft)
+  const setValue = useSession((s) => s.setContextDraft)
+  return (
+    <label className="flex flex-col gap-1 text-xs text-text-muted">
+      Contexto do conteúdo (opcional)
+      <textarea
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        disabled={disabled}
+        rows={3}
+        maxLength={2000}
+        placeholder="Ex.: Debate presidencial na TV, candidatos A e B, out/2026. Se ficar vazio, o rtfc descobre pela transcrição."
+        className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-text"
+        data-testid="context-draft"
+      />
+    </label>
+  )
+}
+
 export function SourcePanel(): React.JSX.Element {
   const connected = useConnection((s) => summarize(s.sidecar, s.socket) === 'connected')
   const active = useSession((s) => s.active)
@@ -247,6 +267,7 @@ export function SourcePanel(): React.JSX.Element {
       <ActiveSession />
       <ErrorNotice />
       <LanguageSelect disabled={active !== null || starting !== null} />
+      <ContextDraft disabled={active !== null || starting !== null} />
 
       <div className="flex flex-col gap-2">
         <SourceButton

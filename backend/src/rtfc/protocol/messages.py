@@ -41,6 +41,9 @@ class SessionInfo(_Message):
     duration_ms: int | None = None
     language: str | None = None
     """Idioma do discurso (definido pelo usuário ou detectado na primeira fala)."""
+    context: str | None = None
+    """Do que se trata (tipo, tema, quem fala, onde, quando). Guia a extração e a checagem."""
+    context_source: Literal["user", "auto"] | None = None
     stt_engine: str | None = None
     stt_model: str | None = None
 
@@ -72,7 +75,8 @@ class CheckSourceData(_Message):
     url: str
     title: str
     domain: str
-    tier: Literal["factchecker", "official", "press", "other"]
+    tier: Literal["primary", "official", "factchecker", "press", "other"]
+    """"official" só aparece em checagens anteriores à camada de fontes primárias."""
     stance: Literal["apoia", "refuta", "contextualiza"]
     quote: str
     published: str | None = None
@@ -110,6 +114,8 @@ class ClaimData(_Message):
     dedup_of: str | None = None
     """Id da afirmação equivalente já registrada nesta sessão (o resultado é reaproveitado)."""
     speaker: str | None = None
+    context: str | None = None
+    """Contexto da afirmação para a checagem (quem disse, sobre o quê, quando), do extrator."""
     stage: CheckStage | None = None
     """Etapa da checagem em andamento (com `status="checking"`)."""
     check: CheckData | None = None
@@ -130,6 +136,8 @@ class SearchSettingsData(_Message):
 
 
 class SettingsData(_Message):
+    min_claim_score: int = Field(ge=1, le=5)
+    """Nota mínima (1–5) de relevância/checabilidade para uma afirmação ser registrada."""
     extractor: LlmRoleData
     checker: LlmRoleData
     auto_extract: bool
@@ -386,6 +394,8 @@ class SessionStart(_Message):
     file_path: str | None = None
     language: str | None = "pt"
     """Código ISO 639-1 do idioma do discurso; `None` = detectar automaticamente."""
+    context: str | None = Field(default=None, max_length=2000)
+    """Contexto do conteúdo digitado pelo usuário (opcional; senão o LLM gera um)."""
 
 
 class SessionStop(_Message):
@@ -414,6 +424,23 @@ class SessionRename(_Message):
     id: str
     session_id: str
     title: str | None = Field(default=None, max_length=200)
+
+
+class SessionSetContext(_Message):
+    """Define o contexto da sessão. `context=None` volta para o contexto automático."""
+
+    type: Literal["session.set_context"] = "session.set_context"
+    id: str
+    session_id: str
+    context: str | None = Field(default=None, max_length=2000)
+
+
+class SessionGenerateContext(_Message):
+    """Pede ao LLM um contexto a partir da transcrição até agora."""
+
+    type: Literal["session.generate_context"] = "session.generate_context"
+    id: str
+    session_id: str
 
 
 class SessionDelete(_Message):
@@ -513,6 +540,8 @@ AnyClientMessage = (
     | SessionList
     | SessionRename
     | SessionDelete
+    | SessionSetContext
+    | SessionGenerateContext
     | ClaimsGet
     | ClaimManual
     | ClaimDiscard

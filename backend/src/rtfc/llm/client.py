@@ -9,6 +9,7 @@
 import asyncio
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, TypeVar
@@ -22,6 +23,13 @@ log = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 MAX_REPAIRS = 2
+
+# Alfabetos que não deveriam aparecer em respostas pt/en/es (grego, cirílico, árabe, indianos,
+# CJK…). Modelos às vezes "vazam" uma palavra de outro idioma no meio do texto.
+_FOREIGN_SCRIPT = re.compile(
+    r"[\u0370-\u03ff\u0400-\u052f\u0590-\u08ff\u0900-\u0dff\u0e00-\u0fff"
+    r"\u1100-\u11ff\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]"
+)
 MAX_RETRIES = 2
 
 
@@ -120,6 +128,20 @@ class LlmClient:
         conversation = list(messages)
         for attempt in range(MAX_REPAIRS + 1):
             text = await self._complete(conversation, kwargs)
+            if _FOREIGN_SCRIPT.search(text):
+                if attempt < MAX_REPAIRS:
+                    log.info("resposta com caracteres de outro alfabeto; pedindo correção")
+                    conversation += [
+                        {"role": "assistant", "content": text},
+                        {
+                            "role": "user",
+                            "content": "A resposta tem palavras em outro alfabeto. Reescreva o "
+                            "mesmo JSON usando só o idioma pedido, sem trocar o conteúdo.",
+                        },
+                    ]
+                    continue
+                # Última tentativa: melhor tirar os caracteres estranhos do que falhar.
+                text = _FOREIGN_SCRIPT.sub("", text)
             try:
                 value = schema.model_validate_json(_strip_fences(text))
             except ValidationError as exc:
