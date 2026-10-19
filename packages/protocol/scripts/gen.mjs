@@ -15,7 +15,9 @@ const check = process.argv.includes('--check')
 
 const schemaJson = execFileSync('uv', ['run', '--project', backend, 'python', '-m', 'rtfc.protocol.schema'], {
   encoding: 'utf8',
-  stdio: ['ignore', 'pipe', 'inherit']
+  stdio: ['ignore', 'pipe', 'inherit'],
+  // Sem isso o Python no Windows escreve em cp1252 e os acentos dos docstrings se corrompem.
+  env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' }
 })
 
 const ts = await compile(JSON.parse(schemaJson), 'RtfcProtocol', {
@@ -27,7 +29,7 @@ const ts = await compile(JSON.parse(schemaJson), 'RtfcProtocol', {
 })
 
 if (check) {
-  const current = existsSync(out) ? readFileSync(out, 'utf8') : ''
+  const current = existsSync(out) ? readFileSync(out, 'utf8').replace(/\r\n/g, '\n') : ''
   if (current !== ts) {
     console.error('packages/protocol/src/generated.ts está desatualizado. Rode `pnpm protocol:gen`.')
     process.exit(1)

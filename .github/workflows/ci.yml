@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   checks:
@@ -26,6 +27,7 @@ jobs:
           enable-cache: true
 
       - name: Instalar dependências
+        id: install
         run: |
           pnpm install --frozen-lockfile
           uv sync --project backend --locked
@@ -34,15 +36,19 @@ jobs:
         run: pnpm protocol:check
 
       - name: Lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pnpm lint
 
       - name: Typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pnpm typecheck
 
       - name: Testes
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pnpm test
 
       - name: Licenças
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pnpm licenses:check
 
   e2e:

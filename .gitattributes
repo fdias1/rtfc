@@ -1,0 +1,4 @@
+# LF em todos os SOs (o Windows converteria para CRLF e quebraria prettier e a checagem do protocolo).
+* text=auto eol=lf
+*.png binary
+*.woff2 binary

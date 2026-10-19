@@ -6,7 +6,11 @@ import { execFileSync } from 'node:child_process'
 const FORBIDDEN = /(^|[^L])(A?GPL)|General Public License/i
 const ALLOWED_EXCEPTIONS = /LGPL|Lesser General Public License/i
 
-const raw = execFileSync('pnpm', ['licenses', 'list', '--prod', '--json'], { encoding: 'utf8' })
+// No Windows o pnpm é um `.cmd`, que só roda via shell.
+const raw = execFileSync('pnpm', ['licenses', 'list', '--prod', '--json'], {
+  encoding: 'utf8',
+  shell: process.platform === 'win32'
+})
 const byLicense = JSON.parse(raw)
 
 const offenders = []
