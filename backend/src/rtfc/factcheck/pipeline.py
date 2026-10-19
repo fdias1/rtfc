@@ -1,0 +1,106 @@
+"""Checagem de uma afirmação: consultas → busca → leitura → veredicto → integridade."""
+
+import asyncio
+import logging
+import time
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from datetime import date
+from typing import Literal
+
+from rtfc.config import SearchSettings, SecretStore
+from rtfc.factcheck.verdict import (
+    CheckedVerdict,
+    Evidence,
+    judge,
+    plan_queries,
+    relevant_passage,
+    validate,
+)
+from rtfc.llm import LlmClient
+from rtfc.search.base import SearchResult
+from rtfc.search.fetch import fetch_text
+from rtfc.search.ranking import DomainLists, rank
+from rtfc.search.service import search
+
+log = logging.getLogger(__name__)
+
+Stage = Literal["queries", "search", "reading", "analysis"]
+StageCallback = Callable[[Stage], Awaitable[None]]
+
+CANDIDATES = 10
+"""Resultados ranqueados que tentamos ler."""
+MAX_EVIDENCE = 6
+FETCH_CONCURRENCY = 6
+
+
+@dataclass(frozen=True)
+class CheckOutcome:
+    verdict: CheckedVerdict
+    queries: list[str]
+    search_provider: str
+    model: str
+    duration_ms: int
+    warnings: list[str]
+
+
+async def _read(results: list[SearchResult], claim: str) -> list[Evidence]:
+    sem = asyncio.Semaphore(FETCH_CONCURRENCY)
+
+    async def one(r: SearchResult) -> tuple[SearchResult, str | None]:
+        if r.content:
+            return r, r.content
+        async with sem:
+            return r, await fetch_text(r.url)
+
+    pages = await asyncio.gather(*(one(r) for r in results))
+    evidence: list[Evidence] = []
+    # Páginas lidas primeiro; sem texto, o snippet do buscador vale como evidência fraca.
+    with_text = [(r, t) for r, t in pages if t]
+    snippets = [(r, None) for r, t in pages if not t and len(r.snippet) > 60]
+    for r, text in (with_text + snippets)[:MAX_EVIDENCE]:
+        body = relevant_passage(text, claim) if text else r.snippet
+        evidence.append(Evidence(len(evidence) + 1, r.with_(content=None), body))
+    return evidence
+
+
+async def check_claim(
+    claim: str,
+    *,
+    client: LlmClient,
+    search_settings: SearchSettings,
+    secrets: SecretStore,
+    language: str | None,
+    when: date,
+    on_stage: StageCallback,
+) -> CheckOutcome:
+    t0 = time.perf_counter()
+
+    await on_stage("queries")
+    plan = await plan_queries(client, claim, language=language, when=when)
+    queries = [q.strip() for q in plan.value.queries if q.strip()][:4] or [claim]
+
+    await on_stage("search")
+    found = await search(queries, language=language, settings=search_settings, secrets=secrets)
+    lists = DomainLists.for_language(language, tuple(search_settings.blocked_domains))
+    candidates = rank(found.results, lists, CANDIDATES)
+
+    await on_stage("reading")
+    evidence = await _read(candidates, claim)
+
+    await on_stage("analysis")
+    if evidence:
+        raw = await judge(client, claim, evidence, language=language, when=when)
+        verdict = validate(raw.value, evidence, language)
+        model = raw.model
+    else:
+        verdict = CheckedVerdict(
+            "inconclusivo", 0.0, "Nenhuma fonte foi encontrada para esta afirmação.", [], 0
+        )
+        model = client.litellm_model
+    duration = round((time.perf_counter() - t0) * 1000)
+    log.info(
+        "checagem em %.1fs: %s (%d fontes, %d citações descartadas, busca=%s)",
+        duration / 1000, verdict.verdict, len(verdict.sources), verdict.dropped, found.provider,
+    )  # fmt: skip
+    return CheckOutcome(verdict, queries, found.provider, model, duration, found.warnings)

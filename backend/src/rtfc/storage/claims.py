@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS claim (
     dedup_of      TEXT,
     speaker       TEXT,
     created_at    TEXT    NOT NULL,
-    model         TEXT
+    model         TEXT,
+    error         TEXT
 );
 CREATE INDEX IF NOT EXISTS claim_session ON claim(session_id, start_ms);
 """
@@ -44,15 +45,20 @@ class StoredClaim:
     speaker: str | None
     created_at: str
     model: str | None
+    error: str | None = None
 
-    def with_status(self, status: str) -> "StoredClaim":
-        return replace(self, status=status)
+    def with_status(self, status: str, error: str | None = None) -> "StoredClaim":
+        return replace(self, status=status, error=error)
 
 
 class ClaimStore:
     def __init__(self, db: sqlite3.Connection) -> None:
         self._db = db
         self._db.executescript(SCHEMA)
+        cols = {r[1] for r in self._db.execute("PRAGMA table_info(claim)")}
+        if "error" not in cols:  # bancos criados antes do M6
+            with self._db:
+                self._db.execute("ALTER TABLE claim ADD COLUMN error TEXT")
 
     def upsert(self, claim: StoredClaim) -> None:
         data = asdict(claim)
@@ -75,6 +81,21 @@ class ClaimStore:
             (session_id,),
         ).fetchall()
         return [StoredClaim(*r) for r in rows]
+
+    def duplicates_of(self, claim_id: str) -> list[StoredClaim]:
+        rows = self._db.execute(
+            f"SELECT {', '.join(StoredClaim.__dataclass_fields__)} FROM claim WHERE dedup_of = ?",
+            (claim_id,),
+        ).fetchall()
+        return [StoredClaim(*r) for r in rows]
+
+    def interrupt_pending(self) -> int:
+        """Checagens que estavam na fila quando o app fechou ficam como canceladas."""
+        with self._db:
+            cur = self._db.execute(
+                "UPDATE claim SET status = 'cancelled' WHERE status IN ('queued', 'checking')"
+            )
+        return cur.rowcount
 
     def delete_session(self, session_id: str) -> None:
         with self._db:

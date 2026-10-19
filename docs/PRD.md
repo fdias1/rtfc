@@ -183,8 +183,8 @@ O Whisper **não** identifica interlocutores sozinho. A diarização é uma etap
 | VAD | Silero VAD | Leve e offline |
 | Diarização | ver §7.4 | — |
 | LLM | **LiteLLM** + validação com Pydantic | Uma interface para mais de 100 provedores, incluindo Ollama (local) |
-| Busca | Camada própria plugável; **Tavily** como padrão (§7.6) | Evita viés dos fornecedores de LLM; Tavily é o mais simples de integrar |
-| Extração de páginas | Conteúdo do Tavily; httpx + trafilatura como fallback | Texto principal de artigos |
+| Busca | Camada própria plugável; **SearXNG local** como padrão, DuckDuckGo de reserva, Tavily opcional (§7.6) | Evita viés dos fornecedores de LLM e não exige conta (ADR 0005) |
+| Extração de páginas | httpx + trafilatura (ou o conteúdo da Tavily, quando usada) | Texto principal de artigos |
 | Persistência | SQLite (SQLAlchemy/SQLModel) | Local e simples |
 | Segredos | `keyring` (Python) | Cofre nativo nos 3 SOs |
 | Mídia | ffmpeg empacotado | Extrair o áudio de vídeos, decodificar formatos e gravar Opus |
@@ -257,12 +257,7 @@ O Whisper não faz diarização. Alternativas avaliadas:
 ### 7.6 Camada de busca (própria)
 
 - Interface `SearchProvider.search(query, lang, n) -> [Result]`.
-- **Padrão do MVP: Tavily.** Foi escolhido pela simplicidade:
-  - uma única chamada devolve os resultados **e o texto principal das páginas** (`include_raw_content`), sem precisar baixar nem limpar HTML;
-  - aceita filtros por domínio (`include_domains`/`exclude_domains`), que mapeiam direto as listas de prioridade e bloqueio;
-  - foi feito para LLMs, tem SDK Python oficial e um plano gratuito (~1000 buscas por mês) suficiente para o MVP.
-- Fallback interno: se uma página vier sem conteúdo, o app baixa com httpx + trafilatura.
-- Adapters para depois (v1.1): **SearXNG** (100% livre, sem chave), Brave, Exa. A interface já nasce pronta para eles.
+- **Padrão do MVP: SearXNG local** (software livre via Docker, sem conta), com **reserva automática no DuckDuckGo** e **Tavily opcional** (com chave). O texto das páginas é extraído pelo próprio rtfc (httpx + trafilatura). Ver ADR 0005.
 - Ranking: (1) agências de checagem do idioma (pt-BR: Lupa, Aos Fatos, Estadão Verifica, AFP Checamos, Fato ou Fake, Comprova, Boatos.org), (2) fontes oficiais (IBGE, TSE, gov.br, Diário Oficial, Banco Central…), (3) veículos jornalísticos, (4) demais. As listas são configuráveis e têm um conjunto padrão por idioma.
 
 ### 7.7 Veredictos
@@ -321,14 +316,14 @@ Cada veredicto vem com uma **confiança** de 0 a 1 (exibida como baixa, média o
 | Licenças dos pesos (pyannote com acesso controlado) | Baixo | Documentar; sherpa-onnx como alternativa sem restrição |
 | Empacotar Python com PyTorch/CTranslate2 em 3 SOs | Médio | PyInstaller por plataforma via CI; modelos baixados sob demanda, fora do instalador |
 | Espaço em disco das gravações | Baixo | Opus (~30 MB/h); tamanho por sessão visível; apagar sessões pela UI |
-| Dependência de um único provedor de busca no MVP (Tavily) | Médio | Interface plugável; SearXNG na v1.1 como alternativa livre |
+| Busca depende de buscadores de terceiros (via SearXNG/DuckDuckGo), que podem limitar o acesso | Médio | Vários motores agregados, reserva automática, Tavily opcional; interface plugável |
 
 ## 11. Decisões e questões em aberto
 
 **Decididas:**
 - Gravação integral do áudio + transcrição alinhada (SRT/WebVTT), ver RF7.
 - Hardware de referência: M2 Pro, 16 GB (mínimo de 16 GB de RAM).
-- Busca padrão: Tavily.
+- Busca padrão: SearXNG local + DuckDuckGo de reserva; Tavily opcional (ADR 0005).
 - Identidade visual: §8.
 
 - **Licença: PolyForm Noncommercial 1.0.0.** Consequências aceitas:

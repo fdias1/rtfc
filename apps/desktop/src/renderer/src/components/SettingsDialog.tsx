@@ -6,6 +6,7 @@ import { useSession, type LanguageChoice } from '../store/session'
 import { useTranscript } from '../store/transcript'
 import { Dialog, buttonClass } from './Dialog'
 import { LlmSettings } from './LlmSettings'
+import { SearchSettings } from './SearchSettings'
 
 function Section({ title, children }: { title: string; children: ReactNode }): React.JSX.Element {
   return (
@@ -112,6 +113,14 @@ export function SettingsDialog({ onClose }: { onClose(): void }): React.JSX.Elem
         <Section title="Modelos de IA">
           {current ? (
             <LlmSettings draft={current} onChange={setDraft} />
+          ) : (
+            <p className="text-xs text-text-muted">Carregando…</p>
+          )}
+        </Section>
+
+        <Section title="Busca">
+          {current ? (
+            <SearchSettings value={current.search} onChange={(search) => setDraft({ ...current, search })} />
           ) : (
             <p className="text-xs text-text-muted">Carregando…</p>
           )}

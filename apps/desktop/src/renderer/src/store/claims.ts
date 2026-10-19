@@ -3,7 +3,14 @@
 import { create } from 'zustand'
 import type { ClaimData, ExtractorStatus, ServerMessage } from '@rtfc/protocol'
 import { backend, onServerMessage } from '../lib/connection'
+import type { Verdict } from '../lib/verdict'
 import type { TranscriptSelection } from './transcript'
+
+export interface ClaimFilters {
+  verdict: Verdict | 'all'
+  speaker: string | 'all'
+  pendingOnly: boolean
+}
 
 interface ClaimsState {
   sessionId: string | null
@@ -13,6 +20,10 @@ interface ClaimsState {
   /** Pedido de checagem manual em andamento. */
   submitting: boolean
   error: string | null
+  filters: ClaimFilters
+  setFilters(filters: Partial<ClaimFilters>): void
+  cancel(claimId: string): Promise<void>
+  retry(claimId: string): Promise<void>
   reset(sessionId: string): void
   load(sessionId: string): Promise<void>
   focus(claimId: string | null): void
@@ -46,6 +57,22 @@ export const useClaims = create<ClaimsState>((set, get) => ({
   focusedId: null,
   submitting: false,
   error: null,
+  filters: { verdict: 'all', speaker: 'all', pendingOnly: false },
+
+  setFilters(filters) {
+    set((s) => ({ filters: { ...s.filters, ...filters } }))
+  },
+
+  async cancel(claimId) {
+    const reply = await backend.request({ type: 'check.cancel', claim_id: claimId })
+    if (reply.type === 'claim.updated') get().handle(reply)
+  },
+
+  async retry(claimId) {
+    const reply = await backend.request({ type: 'check.retry', claim_id: claimId })
+    if (reply.type === 'claim.updated') get().handle(reply)
+    else if (reply.type === 'error') set({ error: reply.message })
+  },
 
   reset(sessionId) {
     set({ sessionId, byId: {}, extractor: null, focusedId: null, error: null })

@@ -133,7 +133,7 @@ Cada sessão também tem uma pasta: `sessions/<id>/{audio.ogg, transcricao.srt, 
 **Aceite:** num discurso anotado de 10 min, recall ≥ 70% e ≤ 20% de opiniões extraídas (medido em M8, primeira leitura aqui); a afirmação aparece na UI em **≤ 5 s (p90) depois do texto confirmado**, com modelo online; funciona tanto com Ollama local quanto com um modelo online, só trocando a configuração.
 
 ### M6 — Checagem · tamanho G
-- `SearchProvider` com **Tavily** (`search_depth=advanced`, `include_raw_content`, filtros de domínio e de idioma/país quando aplicável). Fallback httpx + trafilatura quando a página vem sem conteúdo.
+- `SearchProvider` com **SearXNG local** (padrão, Docker), **DuckDuckGo** como reserva automática e **Tavily** opcional; texto das páginas via httpx + trafilatura (ADR 0005).
 - **Ranking por tiers:** checadores > oficiais > imprensa > outros, com listas padrão para pt-BR em YAML editável e lista de bloqueio.
 - **Pipeline por afirmação** (async, cancelável em cada etapa):
   1. gerar consultas;

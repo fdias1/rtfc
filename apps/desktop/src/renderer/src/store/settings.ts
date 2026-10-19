@@ -1,7 +1,14 @@
 // Configurações de LLM no backend (as chaves nunca voltam para a UI: só se existem).
 
 import { create } from 'zustand'
-import type { LlmRoleData, LlmTestResult, ProviderData, SettingsData } from '@rtfc/protocol'
+import type {
+  LlmRoleData,
+  LlmTestResult,
+  ProviderData,
+  SearchSettingsData,
+  SearchTestResult,
+  SettingsData
+} from '@rtfc/protocol'
 import { backend } from '../lib/connection'
 
 export type Role = 'extractor' | 'checker'
@@ -15,6 +22,7 @@ interface SettingsState {
   setKey(provider: string, value: string | null): Promise<void>
   test(role: Role, config: LlmRoleData): Promise<LlmTestResult | null>
   models(provider: string, baseUrl: string | null): Promise<string[]>
+  testSearch(search: SearchSettingsData): Promise<SearchTestResult | null>
 }
 
 function errorMessage(err: unknown): string {
@@ -61,6 +69,23 @@ export const useSettings = create<SettingsState>((set) => ({
         id: '',
         ok: false,
         model: config.model,
+        latency_ms: null,
+        message: errorMessage(err)
+      }
+    }
+  },
+
+  async testSearch(search) {
+    try {
+      const reply = await backend.request({ type: 'search.test', search })
+      return reply.type === 'search.test.result' ? reply : null
+    } catch (err) {
+      return {
+        type: 'search.test.result',
+        id: '',
+        ok: false,
+        provider: search.provider,
+        results: 0,
         latency_ms: null,
         message: errorMessage(err)
       }

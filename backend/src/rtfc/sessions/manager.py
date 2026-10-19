@@ -11,8 +11,9 @@ import os
 import re
 import secrets
 import shutil
+import time
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -22,6 +23,7 @@ from rtfc.audio.ring_buffer import PcmRingBuffer
 from rtfc.audio.sources import AudioSourceError, FileDecoder, LiveRecorder
 from rtfc.claims import Anchor, ClaimPipeline, manual_claim, to_claim_data
 from rtfc.config import SecretStore, SettingsStore
+from rtfc.factcheck.service import PRIORITY_MANUAL, CheckService
 from rtfc.llm import LlmClient, LlmError
 from rtfc.protocol import (
     ClaimData,
@@ -36,6 +38,7 @@ from rtfc.protocol import (
     TranscriptWord,
 )
 from rtfc.storage import (
+    CheckStore,
     ClaimStore,
     StoredClaim,
     StoredSegment,
@@ -92,6 +95,8 @@ class Session:
         self.claims: ClaimPipeline | None = None
         self.task: asyncio.Task[None] | None = None
         self.subtitles = SubtitleWriter(Path(info.dir))
+        self.clock_start = time.monotonic()
+        """Relógio do áudio ao vivo: o instante t (ms) da gravação ≈ clock_start + t."""
         self.segment_count = 0
         self.latencies_ms: list[int] = []
         self._last_progress_ms = 0
@@ -184,6 +189,62 @@ class SessionManager:
         self.secrets = secrets
         self.claim_store = ClaimStore(store.db) if store else None
         self._sessions: dict[str, Session] = {}
+        self._listeners: set[EventSink] = set()
+        self.checks: CheckService | None = None
+        if store and self.claim_store and settings and secrets:
+            self.check_store = CheckStore(store.db)
+            stale = self.claim_store.interrupt_pending()
+            if stale:
+                log.info(
+                    "%d checagens pendentes de uma execução anterior marcadas como canceladas",
+                    stale,
+                )
+            self.checks = CheckService(
+                claims=self.claim_store,
+                checks=self.check_store,
+                settings=settings,
+                secrets=secrets,
+                broadcast=self.broadcast,
+                session_context=self._session_context,
+                speech_age=self.speech_age_ms,
+            )
+
+    # --- Eventos para todas as conexões ----------------------------------------
+
+    def add_listener(self, sink: EventSink) -> None:
+        self._listeners.add(sink)
+
+    def remove_listener(self, sink: EventSink) -> None:
+        self._listeners.discard(sink)
+
+    async def broadcast(self, event: BaseModel) -> None:
+        for sink in list(self._listeners):
+            with contextlib.suppress(Exception):
+                await sink(event)
+
+    def speech_age_ms(self, session_id: str, end_ms: int) -> int | None:
+        """Quanto tempo passou desde que o trecho foi falado (só em sessões ao vivo ativas)."""
+        session = self._sessions.get(session_id)
+        if session is None or session.info.source == "file":
+            return None
+        return round((time.monotonic() - session.clock_start) * 1000) - end_ms
+
+    def _session_context(self, session_id: str) -> tuple[str | None, date]:
+        try:
+            info = self.load_info(session_id)
+        except (SessionError, ValueError):
+            return None, date.today()
+        return info.language, datetime.fromisoformat(info.started_at).date()
+
+    def claim_data(self, claim: StoredClaim) -> ClaimData:
+        if self.checks:
+            return self.checks.data(claim)  # type: ignore[return-value]
+        return to_claim_data(claim)
+
+    def _auto_check(self, claim: StoredClaim) -> None:
+        settings = self.settings.settings if self.settings else None
+        if self.checks and settings and settings.auto_check and claim.dedup_of is None:
+            asyncio.get_running_loop().create_task(self.checks.enqueue(claim))
 
     def extractor_client(self) -> LlmClient:
         if not (self.settings and self.secrets):
@@ -201,6 +262,7 @@ class SessionManager:
             store=self.claim_store,
             emit=session.emit,
             language=lambda: session.info.language,
+            on_claim=self._auto_check,
         )
         session.claims.start()
 
@@ -461,14 +523,17 @@ class SessionManager:
         if self.store:
             self.store.delete_session(session_id)
         if self.claim_store:
+            ids = [c.id for c in self.claim_store.for_session(session_id)]
             self.claim_store.delete_session(session_id)
+            if self.checks:
+                self.check_store.delete(ids)
 
     # --- Afirmações -------------------------------------------------------------
 
     def claims(self, session_id: str) -> list[ClaimData]:
         if not self.claim_store:
             return []
-        return [to_claim_data(c) for c in self.claim_store.for_session(session_id)]
+        return [self.claim_data(c) for c in self.claim_store.for_session(session_id)]
 
     def _segments(self, session_id: str) -> list[StoredSegment]:
         active = self._sessions.get(session_id)
@@ -494,7 +559,7 @@ class SessionManager:
             raise SessionError("trecho inválido") from None
         where = Anchor(from_seg, from_word, to_seg, to_word, start_ms, end_ms)
         try:
-            return await manual_claim(
+            claim = await manual_claim(
                 session_id,
                 segments,
                 where,
@@ -505,13 +570,19 @@ class SessionManager:
             )
         except (LlmError, ValueError) as exc:
             raise SessionError(f"não foi possível preparar o trecho: {exc}") from exc
+        if self.checks and claim.dedup_of is None:
+            # Pedido explícito do usuário: fura a fila, mesmo com a checagem automática desligada.
+            claim = await self.checks.enqueue(claim, priority=PRIORITY_MANUAL)
+        return claim
 
-    def discard_claim(self, claim_id: str) -> StoredClaim:
+    async def discard_claim(self, claim_id: str) -> StoredClaim:
         if not self.claim_store:
             raise SessionError("afirmações indisponíveis")
         claim = self.claim_store.get(claim_id)
         if claim is None:
             raise SessionError(f"afirmação desconhecida: {claim_id}")
+        if self.checks and claim.status in ("queued", "checking"):
+            await self.checks.cancel(claim_id)
         claim = claim.with_status("discarded")
         self.claim_store.upsert(claim)
         return claim

@@ -23,6 +23,14 @@ pnpm backend:sync        # uv sync no backend Python
 pnpm dev                  # abre o app; o backend Python sobe sozinho
 ```
 
+Busca (checagem de fatos): o padrão é um SearXNG local, sem conta. Com o Docker instalado, rode uma vez:
+
+```bash
+docker run -d --name rtfc-searxng --restart unless-stopped -p 127.0.0.1:8888:8080 -e SEARXNG_SECRET="$(openssl rand -hex 32)" -v "$PWD/infra/searxng:/etc/searxng" searxng/searxng
+```
+
+Sem ele, o rtfc usa o DuckDuckGo como reserva. Modelos de IA, chaves de API e busca ficam em **Configurações** no app (as chaves vão para o cofre do sistema).
+
 Outros comandos:
 
 ```bash

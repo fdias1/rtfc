@@ -1,0 +1,25 @@
+# SearXNG local do rtfc (busca padrão do M6; ADR 0005).
+# Sobe com:  docker run -d --name rtfc-searxng -p 127.0.0.1:8888:8080 \
+#              -e SEARXNG_SECRET="$(openssl rand -hex 32)" \
+#              -v "$PWD/infra/searxng:/etc/searxng" searxng/searxng
+use_default_settings: true
+
+general:
+  instance_name: "rtfc"
+
+server:
+  # A chave vem de SEARXNG_SECRET (nunca versionada).
+  secret_key: "definida-por-SEARXNG_SECRET"
+  limiter: false          # uso local, um único cliente
+  image_proxy: false
+  public_instance: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  formats:
+    - html
+    - json                # o rtfc consome a API JSON
+
+ui:
+  static_use_hash: true

@@ -3,11 +3,19 @@ import { LoaderCircle, SearchCheck } from 'lucide-react'
 import type { ClaimData, TranscriptSegmentData } from '@rtfc/protocol'
 import { formatDuration } from '../lib/format'
 import { selectionFromDom } from '../lib/selection'
+import { VERDICT } from '../lib/verdict'
 import { claimCovers, useClaims, visibleClaims } from '../store/claims'
 import { usePlayer } from '../store/player'
 import { useTranscript } from '../store/transcript'
 
 const NO_CLAIMS: ClaimData[] = []
+
+/** Sublinhado da afirmação: cor do veredicto quando já checada; azul enquanto pendente. */
+function underlineClass(claim: ClaimData, focused: boolean): string {
+  const verdict = claim.status === 'done' ? claim.check?.verdict : undefined
+  const color = verdict ? VERDICT[verdict].decoration : 'decoration-primary/45'
+  return `underline decoration-2 underline-offset-[5px] ${color} ${focused ? 'bg-primary/10' : ''}`
+}
 
 /** Distância do fim (px) abaixo da qual o autoscroll continua ligado. */
 const STICKY_PX = 48
@@ -64,29 +72,19 @@ const Segment = memo(function Segment({
               const claim = claims.find((c) => claimCovers(c, segment.index, i))
               const classes = [
                 i === activeWord ? 'rounded-sm bg-primary/15 text-primary-strong' : '',
-                claim ? 'underline decoration-primary/45 decoration-2 underline-offset-[5px] cursor-pointer' : '',
-                claim && claim.id === focusedClaim ? 'bg-primary/10 decoration-primary' : ''
+                claim ? `${underlineClass(claim, claim.id === focusedClaim)} cursor-pointer` : ''
               ].join(' ')
               // O espaço antes da palavra herda o sublinhado quando a anterior é da mesma afirmação.
               const joined = claim !== undefined && i > 0 && claimCovers(claim, segment.index, i - 1)
               return (
                 <span key={i}>
                   {i > 0 &&
-                    (joined ? (
-                      <span
-                        className={`underline decoration-primary/45 decoration-2 underline-offset-[5px] ${
-                          claim.id === focusedClaim ? 'bg-primary/10 decoration-primary' : ''
-                        }`}
-                      >
-                        {' '}
-                      </span>
-                    ) : (
-                      ' '
-                    ))}
+                    (joined ? <span className={underlineClass(claim, claim.id === focusedClaim)}> </span> : ' ')}
                   <span
                     data-seg={segment.index}
                     data-word={i}
                     data-claim={claim?.id}
+                    data-verdict={claim?.status === 'done' ? claim.check?.verdict : undefined}
                     className={classes.trim() || undefined}
                     onClick={
                       claim

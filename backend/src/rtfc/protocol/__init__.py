@@ -6,6 +6,10 @@ Os modelos Pydantic daqui são a fonte da verdade: o JSON Schema gerado por
 
 from rtfc.protocol.messages import (
     PROTOCOL_VERSION,
+    CheckCancel,
+    CheckData,
+    CheckRetry,
+    CheckSourceData,
     ClaimData,
     ClaimDiscard,
     ClaimManual,
@@ -26,6 +30,9 @@ from rtfc.protocol.messages import (
     Ping,
     Pong,
     ProviderData,
+    SearchSettingsData,
+    SearchTest,
+    SearchTestResult,
     SecretSet,
     ServerMessage,
     SessionDelete,
@@ -57,6 +64,10 @@ from rtfc.protocol.messages import (
 
 __all__ = [
     "PROTOCOL_VERSION",
+    "CheckCancel",
+    "CheckData",
+    "CheckRetry",
+    "CheckSourceData",
     "ClaimData",
     "ClaimDiscard",
     "ClaimManual",
@@ -77,6 +88,9 @@ __all__ = [
     "Ping",
     "Pong",
     "ProviderData",
+    "SearchSettingsData",
+    "SearchTest",
+    "SearchTestResult",
     "SecretSet",
     "ServerMessage",
     "SessionDelete",

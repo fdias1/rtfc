@@ -31,6 +31,16 @@ Baixados sob demanda do Hugging Face Hub; não vêm no instalador.
 | Whisper (OpenAI), incl. conversões `Systran/faster-whisper-*`, `mobiuslabsgmbh/faster-whisper-large-v3-turbo` e `mlx-community/whisper-*` | MIT |
 | Silero VAD (embutido no faster-whisper) | MIT |
 
+## Busca e checagem
+
+| Componente | Licença | Observação |
+|---|---|---|
+| LiteLLM | MIT | Camada de provedores de LLM |
+| RapidFuzz | MIT | Deduplicação e validação de citações |
+| ddgs | MIT | Busca DuckDuckGo (reserva) |
+| trafilatura | Apache-2.0 | Texto principal das páginas |
+| SearXNG | AGPL-3.0 | **Não incorporado**: roda como serviço separado (Docker) acessado por HTTP; o rtfc só traz o arquivo de configuração |
+
 ## Binários
 
 - **ffmpeg**: deve ser empacotado em build **LGPL** (sem `--enable-gpl`), ligado dinamicamente ou executado como processo separado.

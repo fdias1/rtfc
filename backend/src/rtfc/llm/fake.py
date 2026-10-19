@@ -2,6 +2,8 @@
 
 - Extração: cada frase nova com 4+ palavras vira uma afirmação (o texto da própria frase).
 - Normalização de trecho: devolve o trecho.
+- Consultas: a própria afirmação. Veredicto: "verdadeiro", citando as evidências 1 e 2.
+- Busca: `FakeSearchProvider`, 3 resultados com texto (sem rede).
 - Teste de conexão: ok.
 """
 
@@ -34,4 +36,38 @@ def fake_reply(messages: list[dict[str, str]], schema: type[BaseModel]) -> BaseM
     if {"claim", "verifiable"} <= fields:
         excerpt = user.split("TRECHO:", 1)[1].strip()
         return schema.model_validate({"claim": excerpt, "verifiable": True})
+    if fields == {"queries"}:
+        return schema.model_validate({"queries": [user.removeprefix("AFIRMAÇÃO:").strip()]})
+    if {"verdict", "sources"} <= fields:
+        cited = [int(n) for n in re.findall(r"^\[(\d+)\]", user, re.M)][:2]
+        return schema.model_validate(
+            {
+                "verdict": "verdadeiro",
+                "confidence": 0.9,
+                "justification": "As fontes de teste confirmam a afirmação.",
+                "sources": [
+                    {"evidence": n, "stance": "apoia", "quote": "fonte de teste confirma"}
+                    for n in cited
+                ],
+            }
+        )
     return schema.model_validate({"ok": True})
+
+
+class FakeSearchProvider:
+    name = "fake"
+
+    async def search(self, query: str, *, language: str | None, limit: int) -> list[Any]:
+        from rtfc.search.base import SearchResult
+
+        body = f"A fonte de teste confirma que {query} " + "Texto de apoio. " * 20
+        return [
+            SearchResult(
+                url=f"https://{domain}/teste/{i}",
+                title=f"Fonte de teste {i}",
+                snippet=body[:120],
+                provider=self.name,
+                content=body,
+            )
+            for i, domain in enumerate(("aosfatos.org", "ibge.gov.br", "g1.globo.com"), 1)
+        ][:limit]

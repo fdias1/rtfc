@@ -64,6 +64,32 @@ class TranscriptSegmentData(_Message):
 ClaimStatus = Literal["queued", "checking", "done", "cancelled", "discarded", "error"]
 
 
+Verdict = Literal["verdadeiro", "fora_de_contexto", "falso", "inconclusivo"]
+CheckStage = Literal["queries", "search", "reading", "analysis"]
+
+
+class CheckSourceData(_Message):
+    url: str
+    title: str
+    domain: str
+    tier: Literal["factchecker", "official", "press", "other"]
+    stance: Literal["apoia", "refuta", "contextualiza"]
+    quote: str
+    published: str | None = None
+
+
+class CheckData(_Message):
+    verdict: Verdict
+    confidence: float
+    justification: str
+    sources: list[CheckSourceData]
+    model: str | None = None
+    search_provider: str | None = None
+    queries: list[str]
+    checked_at: str
+    duration_ms: int
+
+
 class ClaimData(_Message):
     """Afirmação factual verificável, ancorada num trecho da transcrição (palavras inclusivas)."""
 
@@ -84,6 +110,10 @@ class ClaimData(_Message):
     dedup_of: str | None = None
     """Id da afirmação equivalente já registrada nesta sessão (o resultado é reaproveitado)."""
     speaker: str | None = None
+    stage: CheckStage | None = None
+    """Etapa da checagem em andamento (com `status="checking"`)."""
+    check: CheckData | None = None
+    error: str | None = None
 
 
 class LlmRoleData(_Message):
@@ -92,14 +122,24 @@ class LlmRoleData(_Message):
     base_url: str | None = None
 
 
+class SearchSettingsData(_Message):
+    provider: Literal["searxng", "duckduckgo", "tavily"]
+    searxng_url: str
+    fallback_duckduckgo: bool
+    blocked_domains: list[str]
+
+
 class SettingsData(_Message):
     extractor: LlmRoleData
     checker: LlmRoleData
     auto_extract: bool
+    auto_check: bool
+    search: SearchSettingsData
 
 
 class ProviderData(_Message):
     id: str
+    kind: Literal["llm", "search"] = "llm"
     label: str
     needs_key: bool
     has_key: bool
@@ -266,6 +306,16 @@ class LlmModelsResult(_Message):
     message: str | None = None
 
 
+class SearchTestResult(_Message):
+    type: Literal["search.test.result"] = "search.test.result"
+    id: str
+    ok: bool
+    provider: str
+    results: int
+    latency_ms: int | None = None
+    message: str | None = None
+
+
 class SttStatusMessage(_Message):
     """Estado do modelo de transcrição (download, carregamento, pronto, erro)."""
 
@@ -297,7 +347,8 @@ ServerMessage = Annotated[
     | ExtractorStatus
     | SettingsResult
     | LlmTestResult
-    | LlmModelsResult,
+    | LlmModelsResult
+    | SearchTestResult,
     Field(discriminator="type"),
 ]
 
@@ -397,6 +448,26 @@ class ClaimDiscard(_Message):
     claim_id: str
 
 
+class CheckCancel(_Message):
+    type: Literal["check.cancel"] = "check.cancel"
+    id: str
+    claim_id: str
+
+
+class CheckRetry(_Message):
+    type: Literal["check.retry"] = "check.retry"
+    id: str
+    claim_id: str
+
+
+class SearchTest(_Message):
+    """Faz uma busca de teste com as configurações dadas."""
+
+    type: Literal["search.test"] = "search.test"
+    id: str
+    search: SearchSettingsData
+
+
 class SettingsGet(_Message):
     type: Literal["settings.get"] = "settings.get"
     id: str
@@ -450,6 +521,9 @@ AnyClientMessage = (
     | SecretSet
     | LlmTest
     | LlmModels
+    | CheckCancel
+    | CheckRetry
+    | SearchTest
 )
 ClientMessage = Annotated[AnyClientMessage, Field(discriminator="type")]
 

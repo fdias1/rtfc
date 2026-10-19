@@ -192,8 +192,9 @@ export function LlmSettings({
   draft: SettingsData
   onChange(settings: SettingsData): void
 }): React.JSX.Element {
-  const providers = useSettings((s) => s.providers)
-  const keyed = providers.filter((p) => p.needs_key)
+  const all = useSettings((s) => s.providers)
+  const providers = all.filter((p) => p.kind === 'llm')
+  const keyed = all.filter((p) => p.needs_key)
 
   return (
     <div className="flex flex-col gap-3">
@@ -205,6 +206,15 @@ export function LlmSettings({
           className="accent-primary"
         />
         Detectar afirmações automaticamente durante as sessões
+      </label>
+      <label className="flex items-center gap-2 text-sm text-text">
+        <input
+          type="checkbox"
+          checked={draft.auto_check}
+          onChange={(e) => onChange({ ...draft, auto_check: e.target.checked })}
+          className="accent-primary"
+        />
+        Checar automaticamente cada afirmação detectada
       </label>
       <RoleEditor
         role="extractor"

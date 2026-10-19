@@ -20,11 +20,12 @@ from starlette.websockets import WebSocketState
 from rtfc import __version__
 from rtfc.api import llm_settings
 from rtfc.audio.sources import AudioSourceError
-from rtfc.claims import to_claim_data
 from rtfc.config import KeyringSecretStore, LlmRole, Settings, SettingsStore
 from rtfc.llm.fake import fake_enabled
 from rtfc.protocol import (
     PROTOCOL_VERSION,
+    CheckCancel,
+    CheckRetry,
     ClaimDiscard,
     ClaimManual,
     ClaimsGet,
@@ -38,6 +39,7 @@ from rtfc.protocol import (
     LlmTest,
     Ping,
     Pong,
+    SearchTest,
     SecretSet,
     SessionDelete,
     SessionDeleted,
@@ -154,6 +156,7 @@ class _Connection:
         self._live: Session | None = None
         self._warned_no_live = False
         self._unsubscribe = manager.stt.subscribe(self.send_stt) if manager.stt else None
+        manager.add_listener(self.send)
 
     async def send_stt(self, status: SttStatus) -> None:
         await self.send(
@@ -190,6 +193,7 @@ class _Connection:
                     await self.send(reply)
 
     async def close(self) -> None:
+        self.manager.remove_listener(self.send)
         if self._unsubscribe:
             self._unsubscribe()
         self._live = None
@@ -250,11 +254,26 @@ class _Connection:
                     claim = await self.manager.manual_claim(
                         msg.session_id, msg.from_segment, msg.from_word, msg.to_segment, msg.to_word
                     )
-                    return ClaimUpdated(id=msg.id, claim=to_claim_data(claim))
+                    return ClaimUpdated(id=msg.id, claim=self.manager.claim_data(claim))
                 case ClaimDiscard():
-                    claim = self.manager.discard_claim(msg.claim_id)
-                    return ClaimUpdated(id=msg.id, claim=to_claim_data(claim))
-                case SettingsGet() | SettingsSet() | SecretSet() | LlmTest() | LlmModels():
+                    claim = await self.manager.discard_claim(msg.claim_id)
+                    return ClaimUpdated(id=msg.id, claim=self.manager.claim_data(claim))
+                case CheckCancel() | CheckRetry():
+                    if self.manager.checks is None:
+                        raise SessionError("checagem indisponível")
+                    if isinstance(msg, CheckCancel):
+                        claim = await self.manager.checks.cancel(msg.claim_id)
+                    else:
+                        claim = await self.manager.checks.retry(msg.claim_id)
+                    return ClaimUpdated(id=msg.id, claim=self.manager.claim_data(claim))
+                case (
+                    SettingsGet()
+                    | SettingsSet()
+                    | SecretSet()
+                    | LlmTest()
+                    | LlmModels()
+                    | SearchTest()
+                ):
                     return await self._llm_settings(msg)
         except SessionError as exc:
             return ErrorMessage(id=msg.id, code="session_error", message=str(exc))
@@ -263,7 +282,7 @@ class _Connection:
         return None
 
     async def _llm_settings(
-        self, msg: SettingsGet | SettingsSet | SecretSet | LlmTest | LlmModels
+        self, msg: SettingsGet | SettingsSet | SecretSet | LlmTest | LlmModels | SearchTest
     ) -> BaseModel:
         store, secrets = self.manager.settings, self.manager.secrets
         if store is None or secrets is None:
@@ -281,6 +300,8 @@ class _Connection:
                 return await llm_settings.test_llm(msg, store, secrets)
             case LlmModels():
                 return await llm_settings.models(msg, secrets)
+            case SearchTest():
+                return await llm_settings.test_search(msg, secrets)
 
     async def _start(self, msg: SessionStart) -> SessionStarted:
         if msg.source == "file":

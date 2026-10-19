@@ -1,10 +1,18 @@
 """Handlers de configuração de LLM: ler/gravar configurações e chaves, testar e listar modelos."""
 
 import logging
+import time
 
 from pydantic import BaseModel, ConfigDict
 
-from rtfc.config import PROVIDERS, LlmRole, SecretStore, Settings, SettingsStore, get_provider
+from rtfc.config import (
+    PROVIDERS,
+    LlmRole,
+    SearchSettings,
+    SecretStore,
+    SettingsStore,
+    get_provider,
+)
 from rtfc.llm import LlmClient, LlmError, list_models
 from rtfc.protocol import (
     LlmModels,
@@ -13,6 +21,9 @@ from rtfc.protocol import (
     LlmTest,
     LlmTestResult,
     ProviderData,
+    SearchSettingsData,
+    SearchTest,
+    SearchTestResult,
     SecretSet,
     SettingsData,
     SettingsResult,
@@ -40,6 +51,8 @@ def settings_result(request_id: str, store: SettingsStore, secrets: SecretStore)
             extractor=_role_data(s.extractor),
             checker=_role_data(s.checker),
             auto_extract=s.auto_extract,
+            auto_check=s.auto_check,
+            search=SearchSettingsData.model_validate(s.search.model_dump()),
         ),
         providers=[
             ProviderData(
@@ -51,6 +64,16 @@ def settings_result(request_id: str, store: SettingsStore, secrets: SecretStore)
                 suggested_models=list(p.suggested_models),
             )
             for p in PROVIDERS.values()
+        ]
+        + [
+            ProviderData(
+                id="tavily",
+                kind="search",
+                label="Tavily (busca)",
+                needs_key=True,
+                has_key=bool(secrets.get("tavily")),
+                suggested_models=[],
+            )
         ],
     )
 
@@ -64,10 +87,14 @@ def _role(data: LlmRoleData) -> LlmRole:
 
 def set_settings(msg: SettingsSet, store: SettingsStore, secrets: SecretStore) -> SettingsResult:
     store.save(
-        Settings(
-            extractor=_role(msg.settings.extractor),
-            checker=_role(msg.settings.checker),
-            auto_extract=msg.settings.auto_extract,
+        store.settings.model_copy(
+            update={
+                "extractor": _role(msg.settings.extractor),
+                "checker": _role(msg.settings.checker),
+                "auto_extract": msg.settings.auto_extract,
+                "auto_check": msg.settings.auto_check,
+                "search": _search(msg.settings.search),
+            }
         )
     )
     return settings_result(msg.id, store, secrets)
@@ -113,3 +140,36 @@ async def models(msg: LlmModels, secrets: SecretStore) -> LlmModelsResult:
             id=msg.id, provider=msg.provider, models=fallback, message=str(exc)[:200]
         )
     return LlmModelsResult(id=msg.id, provider=msg.provider, models=found)
+
+
+def _search(data: SearchSettingsData) -> SearchSettings:
+    blocked = [d.strip().lower() for d in data.blocked_domains if d.strip()]
+    return SearchSettings(
+        provider=data.provider,
+        searxng_url=data.searxng_url.strip().rstrip("/") or SearchSettings().searxng_url,
+        fallback_duckduckgo=data.fallback_duckduckgo,
+        blocked_domains=blocked,
+    )
+
+
+async def test_search(msg: SearchTest, secrets: SecretStore) -> SearchTestResult:
+    from rtfc.search.base import SearchError
+    from rtfc.search.service import make_provider
+
+    settings = _search(msg.search)
+    t0 = time.perf_counter()
+    try:
+        provider = make_provider(settings, secrets)
+        results = await provider.search("IBGE inflação", language="pt", limit=5)
+    except SearchError as exc:
+        return SearchTestResult(
+            id=msg.id, ok=False, provider=settings.provider, results=0, message=str(exc)[:300]
+        )
+    return SearchTestResult(
+        id=msg.id,
+        ok=bool(results),
+        provider=settings.provider,
+        results=len(results),
+        latency_ms=round((time.perf_counter() - t0) * 1000),
+        message=None if results else "a busca não trouxe resultados",
+    )

@@ -23,6 +23,9 @@ export type ClientMessage =
   | SecretSet
   | LlmTest
   | LlmModels
+  | CheckCancel
+  | CheckRetry
+  | SearchTest
 /**
  * This interface was referenced by `RtfcProtocol`'s JSON-Schema
  * via the `definition` "ServerMessage".
@@ -48,6 +51,7 @@ export type ServerMessage =
   | SettingsResult
   | LlmTestResult
   | LlmModelsResult
+  | SearchTestResult
 
 /**
  * rtfc protocol v1
@@ -201,9 +205,11 @@ export interface SettingsSet {
  * via the `definition` "SettingsData".
  */
 export interface SettingsData {
+  auto_check: boolean
   auto_extract: boolean
   checker: LlmRoleData
   extractor: LlmRoleData
+  search: SearchSettingsData
 }
 /**
  * This interface was referenced by `RtfcProtocol`'s JSON-Schema
@@ -213,6 +219,16 @@ export interface LlmRoleData {
   base_url: string | null
   model: string
   provider: string
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SearchSettingsData".
+ */
+export interface SearchSettingsData {
+  blocked_domains: string[]
+  fallback_duckduckgo: boolean
+  provider: 'searxng' | 'duckduckgo' | 'tavily'
+  searxng_url: string
 }
 /**
  * Grava (ou apaga, com `value=None`) a chave de API de um provedor no cofre do SO.
@@ -247,6 +263,35 @@ export interface LlmModels {
   id: string
   provider: string
   type: 'llm.models'
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "CheckCancel".
+ */
+export interface CheckCancel {
+  claim_id: string
+  id: string
+  type: 'check.cancel'
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "CheckRetry".
+ */
+export interface CheckRetry {
+  claim_id: string
+  id: string
+  type: 'check.retry'
+}
+/**
+ * Faz uma busca de teste com as configurações dadas.
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SearchTest".
+ */
+export interface SearchTest {
+  id: string
+  search: SearchSettingsData
+  type: 'search.test'
 }
 /**
  * Enviada pelo servidor assim que a conexão é aceita.
@@ -471,8 +516,10 @@ export interface ClaimUpdated {
  * via the `definition` "ClaimData".
  */
 export interface ClaimData {
+  check: CheckData | null
   dedup_of: string | null
   end_ms: number
+  error: string | null
   from_segment: number
   from_word: number
   id: string
@@ -480,11 +527,40 @@ export interface ClaimData {
   session_id: string
   source_text: string
   speaker: string | null
+  stage: ('queries' | 'search' | 'reading' | 'analysis') | null
   start_ms: number
   status: 'queued' | 'checking' | 'done' | 'cancelled' | 'discarded' | 'error'
   text: string
   to_segment: number
   to_word: number
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "CheckData".
+ */
+export interface CheckData {
+  checked_at: string
+  confidence: number
+  duration_ms: number
+  justification: string
+  model: string | null
+  queries: string[]
+  search_provider: string | null
+  sources: CheckSourceData[]
+  verdict: 'verdadeiro' | 'fora_de_contexto' | 'falso' | 'inconclusivo'
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "CheckSourceData".
+ */
+export interface CheckSourceData {
+  domain: string
+  published: string | null
+  quote: string
+  stance: 'apoia' | 'refuta' | 'contextualiza'
+  tier: 'factchecker' | 'official' | 'press' | 'other'
+  title: string
+  url: string
 }
 /**
  * This interface was referenced by `RtfcProtocol`'s JSON-Schema
@@ -526,6 +602,7 @@ export interface ProviderData {
   default_base_url: string | null
   has_key: boolean
   id: string
+  kind: 'llm' | 'search'
   label: string
   needs_key: boolean
   suggested_models: string[]
@@ -552,4 +629,17 @@ export interface LlmModelsResult {
   models: string[]
   provider: string
   type: 'llm.models.result'
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SearchTestResult".
+ */
+export interface SearchTestResult {
+  id: string
+  latency_ms: number | null
+  message: string | null
+  ok: boolean
+  provider: string
+  results: number
+  type: 'search.test.result'
 }

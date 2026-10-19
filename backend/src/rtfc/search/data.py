@@ -1,0 +1,117 @@
+"""Listas padrão de domínios por idioma (editáveis nas configurações).
+
+`factchecker`: agências de checagem; `official`: fontes oficiais e de dados; `press`:
+veículos jornalísticos. Domínios casam por sufixo (gov.br pega ibge.gov.br).
+"""
+
+TIERS: dict[str, dict[str, tuple[str, ...]]] = {
+    "pt": {
+        "factchecker": (
+            "lupa.uol.com.br",
+            "piaui.folha.uol.com.br",
+            "aosfatos.org",
+            "estadao.com.br/estadao-verifica",
+            "checamos.afp.com",
+            "g1.globo.com/fato-ou-fake",
+            "projetocomprova.com.br",
+            "boatos.org",
+            "e-farsas.com",
+            "uol.com.br/confere",
+            "politifact.com",
+            "fullfact.org",
+            "snopes.com",
+        ),
+        "official": (
+            "gov.br",
+            "leg.br",
+            "jus.br",
+            "mp.br",
+            "def.br",
+            "ibge.gov.br",
+            "bcb.gov.br",
+            "ipea.gov.br",
+            "inpe.br",
+            "fiocruz.br",
+            "who.int",
+            "un.org",
+            "worldbank.org",
+            "imf.org",
+            "oecd.org",
+            "wikipedia.org",
+        ),
+        "press": (
+            "g1.globo.com",
+            "globo.com",
+            "folha.uol.com.br",
+            "estadao.com.br",
+            "uol.com.br",
+            "cnnbrasil.com.br",
+            "bbc.com",
+            "valor.globo.com",
+            "poder360.com.br",
+            "agenciabrasil.ebc.com.br",
+            "exame.com",
+            "infomoney.com.br",
+            "correiobraziliense.com.br",
+            "oglobo.globo.com",
+            "metropoles.com",
+            "nexojornal.com.br",
+            "reuters.com",
+            "apnews.com",
+            "elpais.com",
+        ),
+    },
+    "en": {
+        "factchecker": (
+            "politifact.com",
+            "factcheck.org",
+            "fullfact.org",
+            "snopes.com",
+            "apnews.com/hub/ap-fact-check",
+            "reuters.com/fact-check",
+        ),
+        "official": (
+            ".gov",
+            "who.int",
+            "un.org",
+            "worldbank.org",
+            "imf.org",
+            "oecd.org",
+            "wikipedia.org",
+        ),
+        "press": (
+            "reuters.com",
+            "apnews.com",
+            "bbc.com",
+            "nytimes.com",
+            "theguardian.com",
+            "washingtonpost.com",
+        ),
+    },
+    "es": {
+        "factchecker": (
+            "maldita.es",
+            "newtral.es",
+            "chequeado.com",
+            "colombiacheck.com",
+            "efe.com/verifica",
+        ),
+        "official": (".gob", ".gov", "who.int", "un.org", "wikipedia.org"),
+        "press": ("elpais.com", "efe.com", "bbc.com", "reuters.com", "clarin.com", "eltiempo.com"),
+    },
+}
+
+BLOCKED: tuple[str, ...] = (
+    "facebook.com",
+    "instagram.com",
+    "tiktok.com",
+    "x.com",
+    "twitter.com",
+    "kwai.com",
+    "pinterest.com",
+    "reddit.com",
+    "quora.com",
+    "youtube.com",
+    "brainly.com.br",
+)
+"""Redes sociais e fóruns: não servem como evidência (o rtfc só lê texto de páginas)."""

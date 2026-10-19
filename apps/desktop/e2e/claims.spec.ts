@@ -1,5 +1,6 @@
-// Aceite do M5 (parte de UI): afirmações detectadas viram cards ligados à transcrição;
-// descartar, verificar um trecho escolhido, reabrir a sessão e configurar os modelos.
+// Aceite do M5/M6 (UI): afirmações detectadas viram cards ligados à transcrição e são
+// checadas automaticamente (veredicto + fontes); descartar, rechecar, verificar um trecho
+// escolhido, filtrar, reabrir a sessão e configurar modelos e busca.
 
 import { expect, test } from '@playwright/test'
 import { hasLuciana, launchApp, speechWav, stubOpenDialog } from './helpers'
@@ -21,8 +22,34 @@ test('afirmações: cards, destaques, descarte, trecho manual e reabertura', asy
   // O LLM falso extrai as frases com 4+ palavras ("Isso é bom." fica de fora).
   const cards = win.getByTestId('claim-card')
   await expect(cards).toHaveCount(2, { timeout: 180_000 })
-  await expect(cards.first().getByTestId('claim-status')).toHaveText('Na fila')
   await expect(cards.first().getByTestId('claim-text')).toContainText(/infla/i)
+
+  // A checagem roda sozinha: veredicto, justificativa e fontes (LLM e busca falsos).
+  await expect(cards.first().getByTestId('claim-status')).toHaveAttribute('data-verdict', 'verdadeiro', {
+    timeout: 30_000
+  })
+  await expect(cards.first().getByTestId('check-justification')).toContainText('fontes de teste')
+  const sources = cards.first().getByTestId('check-sources').locator('li')
+  await expect(sources).toHaveCount(2)
+  await expect(sources.first()).toContainText('aosfatos.org')
+  await expect(sources.first()).toContainText('checagem')
+  // O sublinhado na transcrição ganha a cor do veredicto.
+  await expect(win.locator('[data-verdict="verdadeiro"]').first()).toBeVisible()
+
+  // Filtro por veredicto.
+  await win.getByTestId('filter-verdadeiro').click()
+  await expect(cards).toHaveCount(2)
+  await win.getByTestId('filter-verdadeiro').click()
+
+  // Rechecar volta para a fila e termina de novo.
+  await cards.first().hover()
+  const checkedAt = async (): Promise<string | null> =>
+    (await cards.first().getByTestId('check-result').getAttribute('data-checked-at')) ?? null
+  const before = await checkedAt()
+  await cards.first().getByTestId('retry-check').click()
+  // Só segue quando o resultado novo chegou (o veredicto anterior fica na tela até lá).
+  await expect.poll(checkedAt, { timeout: 30_000 }).not.toBe(before)
+  await expect(cards.first().getByTestId('claim-status')).toHaveAttribute('data-verdict', 'verdadeiro')
 
   // Cada afirmação aparece sublinhada na transcrição; clicar no trecho foca o card.
   const highlighted = win.locator('[data-claim]')
@@ -55,6 +82,10 @@ test('afirmações: cards, destaques, descarte, trecho manual e reabertura', asy
   const manual = cards.filter({ hasText: 'manual' })
   await expect(manual).toHaveCount(1)
   await expect(manual).toHaveAttribute('data-focused', 'true')
+  // O pedido manual também é checado.
+  await expect(manual.getByTestId('claim-status')).toHaveAttribute('data-verdict', 'verdadeiro', {
+    timeout: 30_000
+  })
   await expect(win.getByTestId('selection-menu')).toBeHidden()
   await first.app.close()
 
@@ -65,6 +96,8 @@ test('afirmações: cards, destaques, descarte, trecho manual e reabertura', asy
     await win2.getByTestId('session-row').first().click()
     await expect(win2.getByTestId('claim-card')).toHaveCount(2)
     await expect(win2.locator(`[data-claim-id="${discardedId}"]`)).toHaveCount(0)
+    // Os resultados das checagens também voltam.
+    await expect(win2.getByTestId('check-result')).toHaveCount(2)
   } finally {
     await app.close()
   }
@@ -84,6 +117,10 @@ test('configurações de modelos: testar conexão e salvar', async () => {
     await win.getByTestId('role-checker').getByRole('button', { name: 'Testar conexão' }).click()
     await expect(win.getByTestId('test-result-checker')).toContainText(/chave/i)
     await expect(win.getByTestId('role-checker')).toContainText('Falta a chave de API')
+
+    // Teste de busca (provedor falso no modo de teste).
+    await win.getByTestId('search-settings').getByRole('button', { name: 'Testar busca' }).click()
+    await expect(win.getByTestId('search-test-result')).toContainText('OK')
 
     await win.getByTestId('model-checker').fill('claude-haiku-5-5')
     await win.getByTestId('save-settings').click()

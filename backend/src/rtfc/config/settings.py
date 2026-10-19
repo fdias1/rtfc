@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -18,6 +19,16 @@ class LlmRole(BaseModel):
     base_url: str | None = None
 
 
+class SearchSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    provider: Literal["searxng", "duckduckgo", "tavily"] = "searxng"
+    searxng_url: str = "http://127.0.0.1:8888"
+    fallback_duckduckgo: bool = True
+    """Se o provedor principal falhar, tenta o DuckDuckGo (sem conta)."""
+    blocked_domains: list[str] = Field(default_factory=list)
+
+
 class Settings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -30,6 +41,10 @@ class Settings(BaseModel):
     )
     """Analisa as evidências e dá o veredicto (M6)."""
     auto_extract: bool = True
+    auto_check: bool = True
+    """Checa automaticamente cada afirmação extraída."""
+    search: SearchSettings = Field(default_factory=SearchSettings)
+    check_concurrency: int = Field(default=3, ge=1, le=8)
 
 
 LOCAL_EXTRACTOR = LlmRole(provider="ollama", model="qwen3:8b")

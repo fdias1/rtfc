@@ -22,8 +22,14 @@ from rapidfuzz import fuzz
 from rtfc.claims.anchor import Anchor, anchor, whole_segment, words_between
 from rtfc.claims.extractor import extract_claims, normalize_excerpt
 from rtfc.llm import LlmClient, LlmConfigError, LlmError
-from rtfc.protocol import ClaimData, ClaimUpdated, ExtractorStatus
-from rtfc.storage import ClaimStore, StoredClaim, StoredSegment
+from rtfc.protocol import (
+    CheckData,
+    CheckSourceData,
+    ClaimData,
+    ClaimUpdated,
+    ExtractorStatus,
+)
+from rtfc.storage import ClaimStore, StoredCheck, StoredClaim, StoredSegment
 
 log = logging.getLogger(__name__)
 
@@ -51,7 +57,23 @@ def find_duplicate(text: str, existing: list[StoredClaim]) -> StoredClaim | None
     return None
 
 
-def to_claim_data(c: StoredClaim) -> ClaimData:
+def to_check_data(c: StoredCheck) -> CheckData:
+    return CheckData(
+        verdict=c.verdict,  # type: ignore[arg-type]
+        confidence=c.confidence,
+        justification=c.justification,
+        sources=[CheckSourceData.model_validate(s.__dict__) for s in c.sources],
+        model=c.model,
+        search_provider=c.search_provider,
+        queries=list(c.queries),
+        checked_at=c.checked_at,
+        duration_ms=c.duration_ms,
+    )
+
+
+def to_claim_data(
+    c: StoredClaim, check: StoredCheck | None = None, stage: str | None = None
+) -> ClaimData:
     return ClaimData(
         id=c.id,
         session_id=c.session_id,
@@ -67,6 +89,9 @@ def to_claim_data(c: StoredClaim) -> ClaimData:
         status=c.status,  # type: ignore[arg-type]
         dedup_of=c.dedup_of,
         speaker=c.speaker,
+        stage=stage if c.status == "checking" else None,  # type: ignore[arg-type]
+        check=to_check_data(check) if check else None,
+        error=c.error,
     )
 
 
@@ -112,8 +137,10 @@ class ClaimPipeline:
         emit: Emit,
         language: Callable[[], str | None],
         when: date | None = None,
+        on_claim: Callable[[StoredClaim], None] | None = None,
     ) -> None:
         self.session_id = session_id
+        self._on_claim = on_claim
         self._client_factory = client_factory
         self._store = store
         self._emit = emit
@@ -228,6 +255,8 @@ class ClaimPipeline:
             if received is not None:
                 self.latencies_ms.append(round((time.monotonic() - received) * 1000))
             await self._emit(ClaimUpdated(claim=to_claim_data(claim)))
+            if self._on_claim:
+                self._on_claim(claim)
 
         if result.value.last_sentence_incomplete and not final:
             self._carry = batch[-1]
