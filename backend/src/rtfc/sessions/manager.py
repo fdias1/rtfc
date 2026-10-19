@@ -119,7 +119,8 @@ class SessionManager:
         return session
 
     async def start_file(self, file_path: str, emit: EventSink) -> Session:
-        path = Path(file_path).expanduser()
+        # stat local de um arquivo: rápido o bastante para não valer uma thread.
+        path = Path(file_path).expanduser()  # noqa: ASYNC240
         if not path.is_file():
             raise SessionError(f"arquivo não encontrado: {path}")
         try:
@@ -146,7 +147,9 @@ class SessionManager:
                 SessionProgress(session_id=session.id, processed_ms=ms, total_ms=media.duration_ms)
             )
 
-        session.task = asyncio.create_task(self._run_file(session, FileDecoder(path, session.buffer.write, progress)))
+        session.task = asyncio.create_task(
+            self._run_file(session, FileDecoder(path, session.buffer.write, progress))
+        )
         return session
 
     async def _run_file(self, session: Session, decoder: FileDecoder) -> None:
