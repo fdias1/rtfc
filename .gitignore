@@ -16,8 +16,8 @@ build/
 *.egg-info/
 
 # Dados locais
-sessions/
-models/
+/sessions/
+/models/
 .env
 out/
 test-results/
