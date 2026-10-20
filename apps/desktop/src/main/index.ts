@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { writeFile } from 'node:fs/promises'
+import { basename, extname, join } from 'node:path'
 import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron'
 import { IPC } from '@shared/ipc'
 import { MEDIA_EXTENSIONS } from '@shared/media'
@@ -11,6 +12,7 @@ import {
   setupCapture
 } from './capture'
 import { allowMediaDir, allowMediaFile, handleMediaProtocol, registerMediaScheme } from './media-protocol'
+import { setupFileLog } from './logger'
 import { SidecarManager } from './sidecar'
 
 // Antes do ready.
@@ -18,6 +20,14 @@ registerMediaScheme()
 enableLoopbackFeatures()
 
 const sessionsDir = process.env.RTFC_SESSIONS_DIR ?? join(app.getPath('documents'), 'rtfc', 'sessions')
+const logsDir = join(sessionsDir, '..', 'logs')
+const EXPORT_FILTERS: Record<string, string> = {
+  md: 'Relatório (Markdown)',
+  json: 'Dados completos (JSON)',
+  srt: 'Legendas SRT',
+  vtt: 'Legendas WebVTT'
+}
+setupFileLog(logsDir)
 const sidecar = new SidecarManager({ sessionsDir })
 
 function createWindow(): BrowserWindow {
@@ -109,7 +119,27 @@ function registerIpc(): void {
       return false
     }
   })
-  ipcMain.handle(IPC.appInfo, () => ({ version: app.getVersion(), sessionsDir }))
+  ipcMain.handle(IPC.appInfo, () => ({ version: app.getVersion(), sessionsDir, logsDir }))
+  ipcMain.handle(IPC.appOpenLogs, () => shell.openPath(logsDir).then(() => undefined))
+  ipcMain.handle(IPC.appSaveFile, async (event, suggestedName: unknown, content: unknown) => {
+    if (typeof suggestedName !== 'string' || typeof content !== 'string') return null
+    const ext = extname(suggestedName).slice(1)
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const options = {
+      defaultPath: join(app.getPath('downloads'), basename(suggestedName)),
+      filters: ext ? [{ name: EXPORT_FILTERS[ext] ?? ext.toUpperCase(), extensions: [ext] }] : []
+    }
+    // Testes E2E: grava direto, sem diálogo.
+    const forced = process.env.RTFC_TEST_SAVE_DIR
+    const result = forced
+      ? { canceled: false, filePath: join(forced, basename(suggestedName)) }
+      : win
+        ? await dialog.showSaveDialog(win, options)
+        : await dialog.showSaveDialog(options)
+    if (result.canceled || !result.filePath) return null
+    await writeFile(result.filePath, content, 'utf8')
+    return result.filePath
+  })
   ipcMain.handle(IPC.appRevealSession, async (_event, sessionId: unknown) => {
     const dir = sessionDir(sessionId)
     if (dir) await shell.openPath(dir)

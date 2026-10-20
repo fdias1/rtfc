@@ -33,6 +33,7 @@ export type ClientMessage =
   | ReviewGet
   | SpeakerRename
   | SpeakersRefine
+  | SessionExport
 /**
  * This interface was referenced by `RtfcProtocol`'s JSON-Schema
  * via the `definition` "ServerMessage".
@@ -61,6 +62,7 @@ export type ServerMessage =
   | SearchTestResult
   | ReviewStatus
   | SpeakersUpdated
+  | SessionExportResult
 
 /**
  * rtfc protocol v1
@@ -387,6 +389,18 @@ export interface SpeakersRefine {
   id: string
   session_id: string
   type: 'speakers.refine'
+}
+/**
+ * Gera o relatório (md), o JSON completo ou as legendas (srt/vtt) da sessão.
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SessionExport".
+ */
+export interface SessionExport {
+  format: 'md' | 'json' | 'srt' | 'vtt'
+  id: string
+  session_id: string
+  type: 'session.export'
 }
 /**
  * Enviada pelo servidor assim que a conexão é aceita.
@@ -785,4 +799,16 @@ export interface SpeakersUpdated {
 export interface SpeakerAssignment {
   index: number
   speaker: string | null
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SessionExportResult".
+ */
+export interface SessionExportResult {
+  content: string
+  filename: string
+  format: 'md' | 'json' | 'srt' | 'vtt'
+  id: string
+  session_id: string
+  type: 'session.export.result'
 }

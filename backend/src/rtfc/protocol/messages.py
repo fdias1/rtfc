@@ -249,6 +249,16 @@ class SpeakersUpdated(_Message):
     segments: list[SpeakerAssignment]
 
 
+class SessionExportResult(_Message):
+    type: Literal["session.export.result"] = "session.export.result"
+    id: str
+    session_id: str
+    format: Literal["md", "json", "srt", "vtt"]
+    filename: str
+    """Nome sugerido para salvar."""
+    content: str
+
+
 class SessionListItem(_Message):
     session: SessionInfo
     size_bytes: int
@@ -401,7 +411,8 @@ ServerMessage = Annotated[
     | LlmModelsResult
     | SearchTestResult
     | ReviewStatus
-    | SpeakersUpdated,
+    | SpeakersUpdated
+    | SessionExportResult,
     Field(discriminator="type"),
 ]
 
@@ -504,6 +515,15 @@ class SpeakersRefine(_Message):
     type: Literal["speakers.refine"] = "speakers.refine"
     id: str
     session_id: str
+
+
+class SessionExport(_Message):
+    """Gera o relatório (md), o JSON completo ou as legendas (srt/vtt) da sessão."""
+
+    type: Literal["session.export"] = "session.export"
+    id: str
+    session_id: str
+    format: Literal["md", "json", "srt", "vtt"]
 
 
 class SessionDelete(_Message):
@@ -646,6 +666,7 @@ AnyClientMessage = (
     | ReviewGet
     | SpeakerRename
     | SpeakersRefine
+    | SessionExport
 )
 ClientMessage = Annotated[AnyClientMessage, Field(discriminator="type")]
 

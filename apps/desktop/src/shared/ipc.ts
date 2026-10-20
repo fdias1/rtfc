@@ -26,12 +26,15 @@ export const IPC = {
   mediaOpenPrivacy: 'media:open-privacy',
   mediaAllowSession: 'media:allow-session',
   appInfo: 'app:info',
-  appRevealSession: 'app:reveal-session'
+  appRevealSession: 'app:reveal-session',
+  appOpenLogs: 'app:open-logs',
+  appSaveFile: 'app:save-file'
 } as const
 
 export interface AppInfo {
   version: string
   sessionsDir: string
+  logsDir: string
 }
 
 /** API exposta ao renderer pelo preload em `window.rtfc`. */
@@ -54,4 +57,8 @@ export interface RtfcBridge {
   getAppInfo(): Promise<AppInfo>
   /** Abre a pasta da sessão no Finder/Explorer. */
   revealSession(sessionId: string): Promise<void>
+  /** Abre a pasta dos logs (para anexar num relato de problema). */
+  openLogs(): Promise<void>
+  /** Pergunta onde salvar (com o nome sugerido) e grava o texto. Devolve o caminho, ou null se cancelado. */
+  saveTextFile(suggestedName: string, content: string): Promise<string | null>
 }

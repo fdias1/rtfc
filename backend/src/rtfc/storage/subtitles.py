@@ -66,3 +66,24 @@ def rewrite_subtitles(session_dir: Path, cues: list[tuple[int, int, str, str | N
     writer.srt_path.replace(session_dir / "transcricao.srt")
     writer.vtt_path.replace(session_dir / "transcricao.vtt")
     tmp_dir.rmdir()
+
+
+Cue = tuple[int, int, str, str | None]
+"""(início ms, fim ms, texto, nome do falante)."""
+
+
+def render_srt(cues: list[Cue]) -> str:
+    """SRT completo. O SRT não tem marcação de voz: o nome entra como prefixo do texto."""
+    out = []
+    for n, (start, end, text, speaker) in enumerate(cues, 1):
+        line = f"{speaker}: {text}" if speaker else text
+        out.append(f"{n}\n{srt_time(start)} --> {srt_time(max(end, start + 1))}\n{line}\n")
+    return "\n".join(out)
+
+
+def render_vtt(cues: list[Cue]) -> str:
+    out = ["WEBVTT\n"]
+    for start, end, text, speaker in cues:
+        voice = f"<v {speaker}>" if speaker else ""
+        out.append(f"{vtt_time(start)} --> {vtt_time(max(end, start + 1))}\n{voice}{text}\n")
+    return "\n".join(out)

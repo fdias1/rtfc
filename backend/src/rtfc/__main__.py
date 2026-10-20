@@ -19,6 +19,7 @@ import threading
 import uvicorn
 
 from rtfc.api import create_app
+from rtfc.logs import setup_file_logging
 
 
 class _RedactToken(logging.Filter):
@@ -81,6 +82,7 @@ def main() -> None:
     for noisy in ("httpx", "huggingface_hub", "filelock"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     logging.getLogger().addFilter(_RedactToken())
+    setup_file_logging(_RedactToken())
 
     token = os.environ.get("RTFC_TOKEN")
     if not token:

@@ -233,3 +233,40 @@ def test_can_start_another_live_session_after_stopping(client: TestClient) -> No
             ws.send_bytes(sine_pcm(0.3))
             ws.send_text(json.dumps({"type": "session.stop", "id": f"e{i}", "session_id": sid}))
             assert recv_until(ws, "session.ended")["reason"] == "stopped"
+
+
+def test_crashed_session_is_recovered_with_audio_transcript_and_subtitles(tmp_path: Path) -> None:
+    """Crash no meio (backend morto): ao listar, a sessão fecha com o que estava no disco."""
+    import asyncio
+
+    from rtfc.protocol import SessionInfo
+    from rtfc.storage import StoredSegment, TranscriptStore
+
+    store = TranscriptStore(tmp_path / "db.sqlite")
+    manager = SessionManager(tmp_path / "sessions", store=store)
+    sid = "20260101-120000-system-abcd"
+    d = manager.sessions_dir / sid
+    d.mkdir(parents=True)
+    ogg = d / "audio.ogg"
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=4",
+         "-c:a", "libopus", str(ogg)],
+        check=True,
+    )  # fmt: skip
+    info = SessionInfo(
+        id=sid, source="system", status="recording", dir=str(d), audio_path=str(ogg),
+        started_at="2026-01-01T15:00:00+00:00", speakers={"S1": "Ana"},
+    )  # fmt: skip
+    (d / "session.json").write_text(info.model_dump_json())
+    store.add_segment(sid, StoredSegment(0, 100, 1500, "Primeira frase.", (), "S1"))
+    store.add_segment(sid, StoredSegment(1, 1600, 3000, "Segunda frase.", (), "S2"))
+    (d / "transcricao.vtt").write_text("WEBVTT\n\n00:00:00.100 --> 00:00:01.5")  # cortado
+
+    items = asyncio.run(manager.list_sessions())
+    recovered = items[0].session
+    assert recovered.status == "interrupted"
+    assert recovered.duration_ms is not None and 3900 <= recovered.duration_ms <= 4200
+    assert recovered.ended_at is not None
+    vtt = (d / "transcricao.vtt").read_text()
+    assert "<v Ana>Primeira frase." in vtt and "<v Falante 2>Segunda frase." in vtt
+    assert json.loads((d / "session.json").read_text())["status"] == "interrupted"

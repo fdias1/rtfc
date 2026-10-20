@@ -34,8 +34,16 @@ _FOREIGN_SCRIPT = re.compile(
 MAX_RETRIES = 2
 
 
+ErrorKind = str
+"""auth, quota, rate_limit, not_found, offline, timeout, server, too_long, format, other."""
+
+
 class LlmError(RuntimeError):
-    pass
+    """Erro com mensagem pronta para o usuário (pt-BR, diz o que fazer)."""
+
+    def __init__(self, message: str, kind: ErrorKind = "other") -> None:
+        super().__init__(message)
+        self.kind = kind
 
 
 class LlmConfigError(LlmError):
@@ -82,7 +90,11 @@ class LlmClient:
             kwargs["api_base"] = base_url
         key = self._secrets.get(self.provider.id)
         if self.provider.needs_key and not key:
-            raise LlmConfigError(f"chave de API do {self.provider.label} não configurada")
+            raise LlmConfigError(
+                f"Falta a chave de API do {self.provider.label}. "
+                "Configure em Configurações → Modelos de IA.",
+                "auth",
+            )
         if key:
             kwargs["api_key"] = key
         if self.provider.id == "ollama":
@@ -156,7 +168,9 @@ class LlmClient:
             except ValidationError as exc:
                 if attempt == MAX_REPAIRS:
                     raise LlmError(
-                        f"resposta fora do formato após {attempt + 1} tentativas"
+                        f"{self.role.model} respondeu fora do formato esperado "
+                        f"{attempt + 1} vezes seguidas. Um modelo maior costuma resolver.",
+                        "format",
                     ) from exc
                 log.info("JSON inválido do %s; pedindo correção", self.litellm_model)
                 conversation += [
@@ -190,7 +204,8 @@ class LlmClient:
                 llm_errors.NotFoundError,
                 llm_errors.BadRequestError,
             ) as exc:
-                raise LlmConfigError(_short(exc)) from exc
+                log.warning("LLM %s recusou: %s", self.litellm_model, _short(exc))
+                raise self.friendly(exc) from exc
             except (
                 llm_errors.RateLimitError,
                 llm_errors.APIConnectionError,
@@ -198,14 +213,85 @@ class LlmClient:
                 llm_errors.ServiceUnavailableError,
                 llm_errors.InternalServerError,
             ) as exc:
-                if attempt == MAX_RETRIES:
-                    raise LlmError(_short(exc)) from exc
+                error = self.friendly(exc)
+                # Cota esgotada não volta sozinha: não adianta insistir.
+                if attempt == MAX_RETRIES or error.kind == "quota":
+                    log.warning("LLM %s falhou: %s", self.litellm_model, _short(exc))
+                    raise error from exc
                 log.warning("LLM %s falhou (%s); tentando de novo", self.litellm_model, _short(exc))
                 await asyncio.sleep(delay)
                 delay *= 2
             except Exception as exc:
-                raise LlmError(_short(exc)) from exc
+                log.warning("LLM %s falhou: %s", self.litellm_model, _short(exc))
+                raise self.friendly(exc) from exc
         raise AssertionError("inalcançável")
+
+    def friendly(self, exc: BaseException) -> LlmError:
+        """Traduz o erro do provedor numa mensagem que diz o que aconteceu e o que fazer."""
+        import litellm.exceptions as e
+
+        label, model = self.provider.label, self.role.model
+        text = str(exc).lower()
+        base = self.role.base_url or self.provider.default_base_url or ""
+        if isinstance(exc, e.AuthenticationError):
+            return LlmConfigError(
+                f"{label}: chave de API inválida ou revogada. "
+                "Atualize em Configurações → Modelos de IA.",
+                "auth",
+            )
+        if isinstance(exc, e.RateLimitError):
+            if any(w in text for w in ("quota", "credit", "billing", "balance", "exceeded your")):
+                return LlmError(
+                    f"{label}: créditos ou cota esgotados. Recarregue a conta ou troque "
+                    "para um modelo local (Ollama) nas configurações.",
+                    "quota",
+                )
+            return LlmError(
+                f"{label}: limite de requisições atingido. Aguarde um pouco ou reduza as "
+                "checagens simultâneas.",
+                "rate_limit",
+            )
+        if isinstance(exc, e.NotFoundError) or (self.is_local and "not found" in text):
+            if self.is_local:
+                return LlmConfigError(
+                    f"O modelo {model} não está instalado no Ollama. "
+                    f"Rode `ollama pull {model}` ou escolha outro modelo.",
+                    "not_found",
+                )
+            return LlmConfigError(
+                f"{label}: o modelo {model} não existe ou sua conta não tem acesso a ele.",
+                "not_found",
+            )
+        if isinstance(exc, e.Timeout):
+            hint = " O modelo pode ser grande demais para a memória livre." if self.is_local else ""
+            return LlmError(
+                f"{label} demorou demais para responder ({self._timeout:.0f} s).{hint}",
+                "timeout",
+            )
+        if isinstance(exc, e.APIConnectionError):
+            if self.is_local:
+                return LlmError(
+                    f"O Ollama não responde em {base or 'localhost:11434'}. "
+                    "Abra o app Ollama (ou rode `ollama serve`).",
+                    "offline",
+                )
+            return LlmError(
+                f"Sem conexão com {label}. Verifique a internet.",
+                "offline",
+            )
+        if isinstance(exc, e.ServiceUnavailableError | e.InternalServerError):
+            return LlmError(
+                f"{label} está instável ou fora do ar agora (erro do servidor).", "server"
+            )
+        if isinstance(exc, e.BadRequestError) and any(
+            w in text for w in ("context length", "context window", "maximum context", "too long")
+        ):
+            return LlmConfigError(
+                f"O texto ficou grande demais para o {model}. Use um modelo com mais contexto.",
+                "too_long",
+            )
+        cls = LlmConfigError if isinstance(exc, e.BadRequestError) else LlmError
+        return cls(f"{label}: {_short(exc)}", "other")
 
 
 def _short(exc: BaseException) -> str:

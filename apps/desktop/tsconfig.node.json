@@ -19,6 +19,8 @@
     "src/main/**/*",
     "src/preload/**/*",
     "src/shared/**/*",
-    "e2e/**/*"
+    "e2e/**/*",
+    "soak/**/*",
+    "playwright.soak.config.ts"
   ]
 }

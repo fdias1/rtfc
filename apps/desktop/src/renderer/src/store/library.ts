@@ -44,7 +44,12 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     set({ loading: true })
     try {
       const reply = await backend.request({ type: 'session.list' })
-      if (reply.type === 'session.list.result') set({ items: reply.sessions, error: null })
+      if (reply.type === 'session.list.result') {
+        // A sessão aberta acompanha o que está no disco (ex.: marcada como interrompida após um crash).
+        const viewing = get().viewing
+        const fresh = viewing && reply.sessions.find((i) => i.session.id === viewing.id)?.session
+        set({ items: reply.sessions, error: null, ...(fresh ? { viewing: fresh } : {}) })
+      }
     } catch (err) {
       set({ error: errorMessage(err) })
     } finally {

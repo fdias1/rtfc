@@ -55,6 +55,8 @@ from rtfc.protocol import (
     SessionDelete,
     SessionDeleted,
     SessionEnded,
+    SessionExport,
+    SessionExportResult,
     SessionGenerateContext,
     SessionList,
     SessionListResult,
@@ -300,6 +302,15 @@ class _Connection:
                     else:
                         status = self.manager.review.status(msg.session_id)
                     return status.model_copy(update={"id": msg.id})
+                case SessionExport():
+                    name, content = self.manager.export(msg.session_id, msg.format)
+                    return SessionExportResult(
+                        id=msg.id,
+                        session_id=msg.session_id,
+                        format=msg.format,
+                        filename=name,
+                        content=content,
+                    )
                 case SpeakerRename():
                     info = await self.manager.rename_speaker(msg.session_id, msg.speaker, msg.name)
                     return SessionUpdated(id=msg.id, session=info)

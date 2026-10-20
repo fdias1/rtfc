@@ -1,7 +1,8 @@
 // M4: falantes na transcrição, renomear (refletido no VTT) e refinar a sessão salva.
 // Com RTFC_DIARIZER=fake, as frases alternam entre dois falantes.
 
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { hasLuciana, launchApp, onlySessionDir, speechWav, stubOpenDialog } from './helpers'
@@ -14,7 +15,8 @@ test.skip(!hasLuciana(), 'gera a fala com a voz Luciana do macOS')
 test('falantes aparecem, são renomeados no VTT e refinados', async () => {
   test.setTimeout(240_000)
   const wav = speechWav(FALA)
-  const { app, win, sessionsDir } = await launchApp()
+  const saveDir = mkdtempSync(join(tmpdir(), 'rtfc-export-'))
+  const { app, win, sessionsDir } = await launchApp({ RTFC_TEST_SAVE_DIR: saveDir })
   try {
     await stubOpenDialog(app, wav)
     await win.getByTestId('start-file').click()
@@ -40,6 +42,22 @@ test('falantes aparecem, são renomeados no VTT e refinados', async () => {
     await expect(win.getByTestId('refine-speakers')).toHaveText('Refinar falantes', { timeout: 60_000 })
     // O nome dado sobrevive ao refinamento.
     await expect(win.getByTestId('speaker-chip').first()).toHaveText('Apresentadora')
+
+    // Exportar: relatório e legendas levam os nomes dos falantes (M7).
+    await win.getByTestId('export-button').click()
+    await win.getByTestId('export-md').click()
+    await expect(win.getByTestId('export-message')).toContainText('Salvo em')
+    const saved = (await win.getByTestId('export-message').getAttribute('title'))!.replace('Salvo em ', '')
+    const md = readFileSync(saved, 'utf8')
+    expect(md).toMatch(/^# fala\.wav\n/)
+    expect(md).toContain('## Afirmações')
+    expect(md).toContain('**[00:0')
+    expect(md).toContain('Apresentadora:**')
+    await win.getByTestId('export-button').click()
+    await win.getByTestId('export-srt').click()
+    await expect(win.getByTestId('export-message')).toContainText('.srt')
+    const srtPath = (await win.getByTestId('export-message').getAttribute('title'))!.replace('Salvo em ', '')
+    expect(readFileSync(srtPath, 'utf8')).toMatch(/^1\n00:00:\d\d,\d{3} --> .*\nApresentadora: /)
   } finally {
     await app.close()
   }

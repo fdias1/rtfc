@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
-import { launchApp, maxVolumeDb, mediaDuration, onlySessionDir } from './helpers'
+import { hasLuciana, launchApp, maxVolumeDb, mediaDuration, onlySessionDir, speechWav } from './helpers'
 
 test('microfone grava audio.ogg e mostra o player ao encerrar', async () => {
   const { app, win, sessionsDir } = await launchApp()
@@ -91,6 +91,41 @@ test('dá para iniciar uma nova sessão ao vivo depois de encerrar a anterior', 
       await expect(win.getByTestId('active-session')).toBeHidden()
     }
     await expect(win.getByRole('alert')).toHaveCount(0)
+  } finally {
+    await app.close()
+  }
+})
+
+test('crash do backend no meio: a sessão reabre interrompida, com áudio e transcrição', async () => {
+  test.skip(!hasLuciana(), 'gera a fala com a voz Luciana do macOS')
+  test.setTimeout(180_000)
+  const wav = speechWav('Boa noite a todos. Hoje eu quero falar sobre a educação pública no nosso país.')
+  const first = await launchApp({ RTFC_FAKE_MIC_WAV: wav })
+  await expect(first.win.getByTestId('stt-status')).toHaveAttribute('data-state', 'ready', { timeout: 120_000 })
+  await first.win.getByTestId('start-mic').click()
+  await expect(first.win.getByTestId('transcript-segment').first()).toBeVisible({ timeout: 30_000 })
+
+  // Simula um crash de verdade: o backend morre sem finalizar nada, e o app junto.
+  const { pid } = await first.win.evaluate(() => window.rtfc.getSidecarStatus())
+  process.kill(pid!, 'SIGKILL')
+  process.kill(first.app.process().pid!, 'SIGKILL')
+  const dir = onlySessionDir(first.sessionsDir)
+  expect(JSON.parse(readFileSync(join(dir, 'session.json'), 'utf8')).status).toBe('recording')
+
+  const { app, win } = await launchApp({ RTFC_SESSIONS_DIR: first.sessionsDir })
+  try {
+    await win.getByTestId('tab-sessions').click()
+    const row = win.getByTestId('session-row').first()
+    await expect(row).toContainText('interrompida')
+    await row.click()
+    await expect(win.getByTestId('transcript-segment').first()).toBeVisible()
+    await expect(win.getByTestId('transcript')).toContainText(/noite/i)
+    const audio = win.locator('[data-testid=media-player] audio')
+    await expect.poll(() => audio.evaluate((a: HTMLAudioElement) => a.duration), { timeout: 10_000 }).toBeGreaterThan(2)
+    const info = JSON.parse(readFileSync(join(dir, 'session.json'), 'utf8'))
+    expect(info.status).toBe('interrupted')
+    expect(info.duration_ms).toBeGreaterThan(2000)
+    expect(readFileSync(join(dir, 'transcricao.vtt'), 'utf8')).toMatch(/noite/i)
   } finally {
     await app.close()
   }

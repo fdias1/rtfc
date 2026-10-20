@@ -157,6 +157,16 @@ export function SettingsDialog({ onClose }: { onClose(): void }): React.JSX.Elem
         <Section title="Sobre">
           <Row label="Versão">{info?.version ?? '…'}</Row>
           <Row label="Licença">PolyForm Noncommercial 1.0.0</Row>
+          <Row label="Logs">
+            <button
+              type="button"
+              onClick={() => void window.rtfc.openLogs()}
+              className="text-sm text-primary hover:underline"
+              title={info?.logsDir}
+            >
+              Abrir pasta dos logs
+            </button>
+          </Row>
         </Section>
       </div>
     </Dialog>

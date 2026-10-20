@@ -77,6 +77,21 @@ def default_sessions_dir() -> Path:
     return Path(override) if override else Path.home() / "Documents" / "rtfc" / "sessions"
 
 
+def _probe_duration_ms(path: Path) -> int | None:
+    """Duração de um arquivo (mesmo um Ogg cortado no meio), ou None."""
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            [ffmpeg.ffprobe_path(), "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True, timeout=15, check=False,
+        ).stdout.strip()  # fmt: skip
+        return round(float(out) * 1000) if out and out != "N/A" else None
+    except (OSError, ValueError, subprocess.SubprocessError, ffmpeg.FfmpegNotFoundError):
+        return None
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -751,13 +766,35 @@ class SessionManager:
                 info = self._sessions[child.name].info
             elif info.status in ("recording", "processing"):
                 # Ficou "em andamento" sem estar ativa: o app caiu no meio. Corrige no disco.
-                info.status = "interrupted"
-                Session.write_info(info)
+                self._recover(info)
             size = sum(f.stat().st_size for f in child.rglob("*") if f.is_file())
             count = self.store.segment_count(info.id) if self.store else 0
             items.append(SessionListItem(session=info, size_bytes=size, segment_count=count))
         items.sort(key=lambda i: i.session.started_at, reverse=True)
         return items
+
+    def _recover(self, info: SessionInfo) -> None:
+        """Sessão que o app não encerrou (crash, falta de energia): fecha com o que foi salvo.
+
+        O áudio (Ogg), a transcrição (SQLite) e as legendas são gravados aos poucos, então
+        tudo até o último ponto está no disco; falta só fechar os metadados.
+        """
+        info.status = "interrupted"
+        audio = Path(info.audio_path)
+        segments = self.store.segments(info.id) if self.store else []
+        if info.source != "file":
+            duration = _probe_duration_ms(audio)
+            last = segments[-1].end_ms if segments else 0
+            info.duration_ms = max(duration or 0, last) or info.duration_ms
+        with contextlib.suppress(OSError):
+            mtime = (audio if info.source != "file" else Path(info.dir) / "session.json").stat()
+            info.ended_at = datetime.fromtimestamp(mtime.st_mtime, UTC).isoformat(
+                timespec="seconds"
+            )
+        if segments:
+            self._rewrite_subtitles(info.id, info)
+        Session.write_info(info)
+        log.info("sessão %s recuperada como interrompida (%d segmentos)", info.id, len(segments))
 
     async def list_sessions(self) -> list[SessionListItem]:
         return await asyncio.to_thread(self._list_sync)
@@ -843,6 +880,22 @@ class SessionManager:
         claim = claim.with_status("discarded")
         self.claim_store.upsert(claim)
         return claim
+
+    def export(self, session_id: str, fmt: str) -> tuple[str, str]:
+        """(nome sugerido, conteúdo) da exportação."""
+        from rtfc import export
+
+        if session_id in self._sessions:
+            raise SessionError("encerre a sessão antes de exportar")
+        info = self.load_info(session_id)
+        content = export.render(
+            fmt,  # type: ignore[arg-type]
+            info,
+            self.transcript(session_id),
+            self.claims(session_id),
+            self.check_store if self.checks else None,
+        )
+        return export.filename(info, fmt), content  # type: ignore[arg-type]
 
     def transcript(self, session_id: str) -> list[TranscriptSegmentData]:
         if not self.store:

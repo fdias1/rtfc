@@ -173,14 +173,16 @@ Cada sessão também tem uma pasta: `sessions/<id>/{audio.ogg, transcricao.srt, 
 - Sessão ao vivo logo depois volta a transcrever normalmente (Whisper recarregado).
 - Na amostra de 40 do dataset, os veredictos revisados reproduzem os números do qwen3:14b (~45% exata, ~65% direção).
 
- · tamanho P
-- Exportação em Markdown (relatório com veredictos, timestamps e fontes), JSON completo, SRT e VTT.
-- **Soak test de 2 h** ao vivo, monitorando memória do renderer e do sidecar, tamanho da fila e latência ao longo do tempo.
-- Recuperação: sessão interrompida por crash reabre com o áudio e a transcrição até o último ponto, marcada como "interrompida".
-- Tratamento de erros dos provedores (rate limit, chave inválida, sem rede) com mensagens claras.
-- Logs estruturados com rotação.
+### M7 — Exportação e robustez · tamanho P · ✅ implementado
+- Exportação em Markdown (relatório com veredictos, timestamps e fontes), JSON completo, SRT e VTT. *Feito:* menu "Exportar" na sessão aberta; falantes com nome no relatório, no SRT (prefixo) e no VTT (`<v>`); o JSON traz as duas checagens (ao vivo e revisão).
+- **Soak test de 2 h** ao vivo, monitorando memória do renderer e do sidecar, tamanho da fila e latência ao longo do tempo. *Feito:* `pnpm --filter @rtfc/desktop soak` (`RTFC_SOAK_MIN` para a duração), com CSV por minuto em `apps/desktop/soak/out/`.
+- Recuperação: sessão interrompida por crash reabre com o áudio e a transcrição até o último ponto, marcada como "interrompida". *Feito:* ao listar, fecha duração (ffprobe do Ogg cortado), fim e legendas (regeradas do SQLite); E2E mata o backend com SIGKILL.
+- Tratamento de erros dos provedores (rate limit, chave inválida, sem rede) com mensagens claras. *Feito:* LLM (chave, cota/créditos, limite, modelo ausente no Ollama, Ollama fechado, sem internet, timeout, contexto grande demais) e busca (SearXNG parado, bloqueios, Tavily); cota esgotada não é repetida.
+- Logs estruturados com rotação. *Feito:* JSON por linha em `<dados>/logs/` (`backend.log` 5 MB × 5, `app.log` 5 MB × 3), sem token; botão "Abrir pasta dos logs" nas configurações.
 
 **Aceite:** sessão de 2 h sem travar, com crescimento de memória < 20% depois da primeira meia hora; os exports abrem corretamente.
+
+**Resultado:** exports verificados (unitários e E2E). **O teste de 2 h não foi rodado** (interrompido aos 3 min, a pedido): backend estável em ~4,1 GB (Whisper turbo + diarização), renderer ~190 MB, latência ≤ 2,1 s. O script fica para rodar quando necessário.
 
 ### M8 — Avaliação e ajuste de prompts · tamanho M (pode começar em paralelo com M5)
 - **Dataset de veredictos:** cerca de 100 afirmações já checadas por agências brasileiras, com o veredicto mapeado para os 4 rótulos. **Excluir dos resultados de busca o domínio da própria checagem** para não "colar" a resposta, e também medir sem exclusão.

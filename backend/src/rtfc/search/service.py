@@ -62,7 +62,7 @@ def make_provider(settings: SearchSettings, secrets: SecretStore) -> SearchProvi
     if settings.provider == "tavily":
         key = secrets.get("tavily")
         if not key:
-            raise SearchError("chave da Tavily não configurada")
+            raise SearchError("Falta a chave da Tavily. Configure em Configurações → Busca.")
         return TavilyProvider(key)
     if settings.provider == "duckduckgo":
         return DuckDuckGoProvider()

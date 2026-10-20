@@ -22,7 +22,10 @@ const bridge: RtfcBridge = {
   openPrivacySettings: (kind) => ipcRenderer.invoke(IPC.mediaOpenPrivacy, kind) as Promise<void>,
   allowSessionMedia: (sessionId) => ipcRenderer.invoke(IPC.mediaAllowSession, sessionId) as Promise<boolean>,
   getAppInfo: () => ipcRenderer.invoke(IPC.appInfo) as Promise<AppInfo>,
-  revealSession: (sessionId) => ipcRenderer.invoke(IPC.appRevealSession, sessionId) as Promise<void>
+  revealSession: (sessionId) => ipcRenderer.invoke(IPC.appRevealSession, sessionId) as Promise<void>,
+  openLogs: () => ipcRenderer.invoke(IPC.appOpenLogs) as Promise<void>,
+  saveTextFile: (suggestedName, content) =>
+    ipcRenderer.invoke(IPC.appSaveFile, suggestedName, content) as Promise<string | null>
 }
 
 contextBridge.exposeInMainWorld('rtfc', bridge)

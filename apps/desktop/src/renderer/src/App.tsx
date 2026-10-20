@@ -4,6 +4,7 @@ import { ChecksPanel } from './components/ChecksPanel'
 import { ContextBar } from './components/ContextBar'
 import { ConnectionBadge } from './components/ConnectionBadge'
 import { MediaPlayer } from './components/MediaPlayer'
+import { ExportMenu } from './components/ExportMenu'
 import { EmptyState, Panel } from './components/Panel'
 import { SessionsPanel } from './components/SessionsPanel'
 import { SettingsDialog } from './components/SettingsDialog'
@@ -45,15 +46,18 @@ function TranscriptPanel(): React.JSX.Element {
       title={title}
       aside={
         !active && viewing ? (
-          <button
-            type="button"
-            onClick={closeViewing}
-            aria-label="Fechar sessão"
-            title="Fechar sessão"
-            className="text-text-muted hover:text-text"
-          >
-            <X size={16} />
-          </button>
+          <span className="flex items-center gap-3">
+            <ExportMenu sessionId={viewing.id} />
+            <button
+              type="button"
+              onClick={closeViewing}
+              aria-label="Fechar sessão"
+              title="Fechar sessão"
+              className="text-text-muted hover:text-text"
+            >
+              <X size={16} />
+            </button>
+          </span>
         ) : null
       }
     >
