@@ -14,6 +14,7 @@ import secrets
 import time
 import unicodedata
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from datetime import UTC, date, datetime
 
 from pydantic import BaseModel
@@ -159,7 +160,9 @@ class ClaimPipeline:
         min_score: Callable[[], int] = lambda: 1,
         on_auto_context: Callable[[str], Awaitable[object]] | None = None,
         auto_context_allowed: Callable[[], bool] = lambda: True,
+        speakers: Callable[[], dict[str, str]] = dict,
     ) -> None:
+        self._speakers = speakers
         self.session_id = session_id
         self._on_claim = on_claim
         self._content_context = content_context
@@ -238,6 +241,7 @@ class ClaimPipeline:
                 language=self._language(),
                 when=self._when,
                 hint=self._content_context(),
+                speakers=self._speakers(),
             )
         except (LlmConfigError, LlmError, ValueError) as exc:
             log.warning("contexto automático falhou: %s", exc)
@@ -271,6 +275,7 @@ class ClaimPipeline:
                 language=self._language(),
                 when=self._when,
                 content_context=self._content_context(),
+                speakers=self._speakers(),
             )
         except asyncio.CancelledError:
             raise
@@ -330,7 +335,15 @@ class ClaimPipeline:
             language=self._language(),
             when=self._when,
             content_context=self._content_context(),
+            speakers=self._speakers(),
         )
+
+    def relabel(self, speakers: dict[int, str | None]) -> None:
+        """Falantes de segmentos já recebidos mudaram (fusão ao vivo ou refinamento)."""
+        self.segments = [
+            replace(s, speaker=speakers[s.index]) if s.index in speakers else s
+            for s in self.segments
+        ]
 
 
 async def manual_claim(
@@ -343,6 +356,7 @@ async def manual_claim(
     language: str | None,
     when: date,
     content_context: str | None = None,
+    speakers: dict[str, str] | None = None,
 ) -> StoredClaim:
     excerpt = words_between(segments, where)
     if not excerpt:
@@ -359,6 +373,7 @@ async def manual_claim(
         language=language,
         when=when,
         content_context=content_context,
+        speakers=speakers,
     )
     seg = next((s for s in segments if s.index == where.from_segment), None)
     claim = new_claim(

@@ -56,6 +56,8 @@ def settings_result(request_id: str, store: SettingsStore, secrets: SecretStore)
             auto_check=s.auto_check,
             search=SearchSettingsData.model_validate(s.search.model_dump()),
             min_claim_score=s.min_claim_score,
+            diarization=s.diarization,
+            speaker_threshold=s.speaker_threshold,
         ),
         providers=[
             ProviderData(
@@ -99,6 +101,8 @@ def set_settings(msg: SettingsSet, store: SettingsStore, secrets: SecretStore) -
                 "auto_extract": msg.settings.auto_extract,
                 "auto_check": msg.settings.auto_check,
                 "min_claim_score": msg.settings.min_claim_score,
+                "diarization": msg.settings.diarization,
+                "speaker_threshold": msg.settings.speaker_threshold,
                 "search": _search(msg.settings.search),
             }
         )

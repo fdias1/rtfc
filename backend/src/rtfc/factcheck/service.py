@@ -9,13 +9,14 @@ import contextlib
 import itertools
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 
 from pydantic import BaseModel
 
 from rtfc.claims.pipeline import to_claim_data
 from rtfc.config import SecretStore, SettingsStore
+from rtfc.diarization.clustering import speaker_label
 from rtfc.factcheck.pipeline import Stage, check_claim
 from rtfc.llm import LlmClient, LlmError
 from rtfc.protocol import ClaimUpdated
@@ -38,6 +39,8 @@ class CheckContext:
     """Contexto do conteúdo (da sessão)."""
     transcript: str = ""
     """Transcrição ao redor da afirmação (~60 s antes, 15 s depois; ">>" marca o trecho)."""
+    speakers: dict[str, str] = field(default_factory=dict)
+    """Nomes dados aos falantes da sessão."""
 
 
 SessionContext = Callable[[str, int, int], CheckContext]
@@ -211,7 +214,7 @@ class CheckService:
                 on_stage=on_stage,
                 claim_context=claim.context,
                 content_context=ctx.content,
-                speaker=claim.speaker,
+                speaker=speaker_label(claim.speaker, ctx.speakers),
                 transcript=ctx.transcript,
             )
         except asyncio.CancelledError:

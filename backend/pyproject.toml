@@ -18,6 +18,8 @@ dependencies = [
     "pydantic>=2.14.1",
     "pypdf>=6.21.1",
     "rapidfuzz>=3.14.6",
+    "sherpa-onnx>=1.13.8",
+    "sherpa-onnx-core==1.13.8",
     "trafilatura>=2.3.1",
     "uvicorn[standard]>=0.54.0",
 ]
@@ -61,7 +63,7 @@ mypy_path = "src"
 packages = ["rtfc"]
 
 [[tool.mypy.overrides]]
-module = ["faster_whisper.*", "mlx_whisper.*", "mlx.*", "jiwer.*"]
+module = ["faster_whisper.*", "mlx_whisper.*", "mlx.*", "jiwer.*", "sherpa_onnx.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

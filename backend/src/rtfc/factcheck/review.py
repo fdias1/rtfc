@@ -23,6 +23,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from rtfc.config import SecretStore, SettingsStore
+from rtfc.diarization.clustering import speaker_label
 from rtfc.factcheck.pipeline import Stage, check_claim
 from rtfc.factcheck.service import CheckService, SessionContext
 from rtfc.llm import LlmClient, LlmError
@@ -304,7 +305,7 @@ class ReviewService:
                 on_stage=on_stage,
                 claim_context=claim.context,
                 content_context=ctx.content,
-                speaker=claim.speaker,
+                speaker=speaker_label(claim.speaker, ctx.speakers),
                 transcript=ctx.transcript,
                 full_evidence=True,
             )

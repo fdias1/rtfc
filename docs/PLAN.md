@@ -22,7 +22,7 @@ rtfc/
 │  │  ├─ api/                  # FastAPI: HTTP (config, sessões) + WebSocket (stream/eventos)
 │  │  ├─ audio/                # ingestão, ffmpeg, gravação Opus, VAD
 │  │  ├─ stt/                  # interface STTEngine + faster-whisper, mlx-whisper
-│  │  ├─ diarization/          # interface Diarizer + sherpa-onnx, pyannote
+│  │  ├─ diarization/          # embeddings de falante (sherpa-onnx) + agrupamento
 │  │  ├─ llm/                  # LLMClient (LiteLLM), prompts versionados
 │  │  ├─ claims/               # extrator, normalização, dedup
 │  │  ├─ search/               # SearchProvider + Tavily, ranking, fetch fallback
@@ -107,15 +107,17 @@ Cada sessão também tem uma pasta: `sessions/<id>/{audio.ogg, transcricao.srt, 
 
 **Aceite:** reabrir uma sessão antiga, clicar em qualquer frase e ouvir o ponto exato da gravação; selecionar um trecho mostra o menu de ação (ainda inativo).
 
-### M4 — Diarização · tamanho M
-- Interface `Diarizer`.
-- **Ao vivo — sherpa-onnx:** embedding por segmento VAD e clustering incremental por similaridade de cosseno com limiar configurável. Emite `speaker.update` e permite reatribuir falantes retroativamente.
-- **Arquivo — pyannote** (community-1): diarização completa, cruzada com os timestamps das palavras (falante = maior sobreposição).
-- "Refinar falantes" no fim da sessão ao vivo: roda pyannote sobre `audio.ogg` e remapeia os rótulos.
+### M4 — Diarização · tamanho M · ✅ implementado (ADR 0008)
+- Interface `SpeakerEmbedder` (sherpa-onnx, ou falso nos testes).
+- **Ao vivo — sherpa-onnx:** embedding por segmento da transcrição e clustering incremental por similaridade de cosseno com limiar configurável. Emite `speakers.updated` e reatribui falantes retroativamente (fusões).
+- **Arquivo:** o mesmo método, mais o refinamento com a sessão inteira no fim. *Mudou do plano:* o pyannote community-1 exige conta no Hugging Face e PyTorch, e o pipeline pyannote ONNX do sherpa foi mais lento e menos preciso no teste (ADR 0008).
+- "Refinar falantes": automático no fim de toda sessão (com os embeddings já calculados) e por botão numa sessão salva (recalcula a partir do áudio), mantendo os nomes dados.
 - Renomear falantes na UI, refletido no VTT (`<v Nome>`).
 - Opção de desligar a diarização.
 
 **Aceite:** num trecho de debate com 2 a 3 pessoas, ≥ 85% dos segmentos com o falante certo (arquivo) e ≥ 70% (ao vivo); renomear um falante atualiza a UI e o VTT.
+
+**Resultado:** debate sintético com 3 vozes (limpo e degradado): 94–97% ao vivo e 100% refinado; renomear atualiza a UI e o VTT (E2E). **Falta** medir num debate real anotado (ADR 0008).
 
 ### M5 — Camada de LLM e extração de afirmações · tamanho M
 - `LLMClient` sobre LiteLLM: saída estruturada (JSON schema/tools quando houver suporte; senão parse com até 2 tentativas de correção), timeout, `CancelToken` e retry com backoff.

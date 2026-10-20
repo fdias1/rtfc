@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { LoaderCircle, SearchCheck } from 'lucide-react'
 import type { ClaimData, TranscriptSegmentData } from '@rtfc/protocol'
 import { formatDuration } from '../lib/format'
+import { speakerColor, speakerLabel } from '../lib/speakers'
 import { selectionFromDom } from '../lib/selection'
 import { VERDICT } from '../lib/verdict'
 import { claimCovers, useClaims, visibleClaims } from '../store/claims'
@@ -30,6 +31,8 @@ interface SegmentProps {
   claims: ClaimData[]
   focusedClaim: string | null
   onFocusClaim(id: string): void
+  /** Nome do falante, só quando muda em relação ao segmento anterior. */
+  speakerName: string | null
 }
 
 const Segment = memo(function Segment({
@@ -39,7 +42,8 @@ const Segment = memo(function Segment({
   onSeek,
   claims,
   focusedClaim,
-  onFocusClaim
+  onFocusClaim,
+  speakerName
 }: SegmentProps) {
   const active = activeWord !== null
   return (
@@ -60,49 +64,59 @@ const Segment = memo(function Segment({
       >
         {formatDuration(segment.start_ms)}
       </button>
-      <p
-        className={`text-[16.5px] leading-relaxed text-text ${seekable ? 'cursor-pointer' : ''}`}
-        onClick={() => {
-          // Clique simples busca o áudio; arrastar para selecionar não.
-          if (seekable && window.getSelection()?.isCollapsed !== false) onSeek(segment.start_ms)
-        }}
-      >
-        {segment.words.length > 0
-          ? segment.words.map((w, i) => {
-              const claim = claims.find((c) => claimCovers(c, segment.index, i))
-              const classes = [
-                i === activeWord ? 'rounded-sm bg-primary/15 text-primary-strong' : '',
-                claim ? `${underlineClass(claim, claim.id === focusedClaim)} cursor-pointer` : ''
-              ].join(' ')
-              // O espaço antes da palavra herda o sublinhado quando a anterior é da mesma afirmação.
-              const joined = claim !== undefined && i > 0 && claimCovers(claim, segment.index, i - 1)
-              return (
-                <span key={i}>
-                  {i > 0 &&
-                    (joined ? <span className={underlineClass(claim, claim.id === focusedClaim)}> </span> : ' ')}
-                  <span
-                    data-seg={segment.index}
-                    data-word={i}
-                    data-claim={claim?.id}
-                    data-verdict={claim?.status === 'done' ? claim.check?.verdict : undefined}
-                    className={classes.trim() || undefined}
-                    onClick={
-                      claim
-                        ? (e) => {
-                            if (window.getSelection()?.isCollapsed === false) return
-                            e.stopPropagation()
-                            onFocusClaim(claim.id)
-                          }
-                        : undefined
-                    }
-                  >
-                    {w.text}
+      <div className="min-w-0">
+        {speakerName && segment.speaker && (
+          <span
+            className={`mb-0.5 inline-block rounded-full border px-1.5 text-[11px] leading-4 select-none ${speakerColor(segment.speaker)}`}
+            data-testid="segment-speaker"
+          >
+            {speakerName}
+          </span>
+        )}
+        <p
+          className={`text-[16.5px] leading-relaxed text-text ${seekable ? 'cursor-pointer' : ''}`}
+          onClick={() => {
+            // Clique simples busca o áudio; arrastar para selecionar não.
+            if (seekable && window.getSelection()?.isCollapsed !== false) onSeek(segment.start_ms)
+          }}
+        >
+          {segment.words.length > 0
+            ? segment.words.map((w, i) => {
+                const claim = claims.find((c) => claimCovers(c, segment.index, i))
+                const classes = [
+                  i === activeWord ? 'rounded-sm bg-primary/15 text-primary-strong' : '',
+                  claim ? `${underlineClass(claim, claim.id === focusedClaim)} cursor-pointer` : ''
+                ].join(' ')
+                // O espaço antes da palavra herda o sublinhado quando a anterior é da mesma afirmação.
+                const joined = claim !== undefined && i > 0 && claimCovers(claim, segment.index, i - 1)
+                return (
+                  <span key={i}>
+                    {i > 0 &&
+                      (joined ? <span className={underlineClass(claim, claim.id === focusedClaim)}> </span> : ' ')}
+                    <span
+                      data-seg={segment.index}
+                      data-word={i}
+                      data-claim={claim?.id}
+                      data-verdict={claim?.status === 'done' ? claim.check?.verdict : undefined}
+                      className={classes.trim() || undefined}
+                      onClick={
+                        claim
+                          ? (e) => {
+                              if (window.getSelection()?.isCollapsed === false) return
+                              e.stopPropagation()
+                              onFocusClaim(claim.id)
+                            }
+                          : undefined
+                      }
+                    >
+                      {w.text}
+                    </span>
                   </span>
-                </span>
-              )
-            })
-          : segment.text}
-      </p>
+                )
+              })
+            : segment.text}
+        </p>
+      </div>
     </li>
   )
 })
@@ -154,7 +168,14 @@ function SelectionMenu({ top }: { top: number }): React.JSX.Element {
   )
 }
 
-export function TranscriptView({ seekable }: { seekable: boolean }): React.JSX.Element {
+export function TranscriptView({
+  seekable,
+  speakers = {}
+}: {
+  seekable: boolean
+  /** Nomes dados aos falantes da sessão. */
+  speakers?: Record<string, string>
+}): React.JSX.Element {
   const segments = useTranscript((s) => s.segments)
   const partial = useTranscript((s) => s.partial)
   const latency = useTranscript((s) => s.lastLatencyMs)
@@ -217,7 +238,7 @@ export function TranscriptView({ seekable }: { seekable: boolean }): React.JSX.E
     >
       {selection && <SelectionMenu top={menuTop} />}
       <ol className="flex flex-col gap-1">
-        {segments.map((seg) => (
+        {segments.map((seg, i) => (
           <Segment
             key={seg.index}
             segment={seg}
@@ -227,6 +248,9 @@ export function TranscriptView({ seekable }: { seekable: boolean }): React.JSX.E
             claims={claimsBySegment.get(seg.index) ?? NO_CLAIMS}
             focusedClaim={focusedClaim}
             onFocusClaim={focusClaim}
+            speakerName={
+              seg.speaker && seg.speaker !== segments[i - 1]?.speaker ? speakerLabel(seg.speaker, speakers) : null
+            }
           />
         ))}
         {partial && (

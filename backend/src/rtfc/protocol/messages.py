@@ -46,6 +46,8 @@ class SessionInfo(_Message):
     context_source: Literal["user", "auto"] | None = None
     stt_engine: str | None = None
     stt_model: str | None = None
+    speakers: dict[str, str] = Field(default_factory=dict)
+    """Nomes dados aos falantes ({"S1": "Fulano"}). Sem nome, a UI mostra "Falante 1"."""
 
 
 class TranscriptWord(_Message):
@@ -151,6 +153,8 @@ class SettingsData(_Message):
     auto_extract: bool
     auto_check: bool
     search: SearchSettingsData
+    diarization: bool = True
+    speaker_threshold: float = Field(default=0.6, ge=0.2, le=0.9)
 
 
 class ProviderData(_Message):
@@ -226,6 +230,23 @@ class SessionUpdated(_Message):
     type: Literal["session.updated"] = "session.updated"
     id: str | None = None
     session: SessionInfo
+
+
+class SpeakerAssignment(_Message):
+    index: int
+    speaker: str | None
+
+
+class SpeakersUpdated(_Message):
+    """Falantes de segmentos já emitidos mudaram (fusão ao vivo ou refinamento).
+
+    Tem `id` quando é a resposta a um `speakers.refine`.
+    """
+
+    type: Literal["speakers.updated"] = "speakers.updated"
+    id: str | None = None
+    session_id: str
+    segments: list[SpeakerAssignment]
 
 
 class SessionListItem(_Message):
@@ -379,7 +400,8 @@ ServerMessage = Annotated[
     | LlmTestResult
     | LlmModelsResult
     | SearchTestResult
-    | ReviewStatus,
+    | ReviewStatus
+    | SpeakersUpdated,
     Field(discriminator="type"),
 ]
 
@@ -462,6 +484,24 @@ class SessionGenerateContext(_Message):
     """Pede ao LLM um contexto a partir da transcrição até agora."""
 
     type: Literal["session.generate_context"] = "session.generate_context"
+    id: str
+    session_id: str
+
+
+class SpeakerRename(_Message):
+    """Dá nome a um falante. `name=None` volta para "Falante N"."""
+
+    type: Literal["speaker.rename"] = "speaker.rename"
+    id: str
+    session_id: str
+    speaker: str
+    name: str | None = Field(default=None, max_length=80)
+
+
+class SpeakersRefine(_Message):
+    """Refaz a identificação dos falantes da sessão inteira a partir do áudio."""
+
+    type: Literal["speakers.refine"] = "speakers.refine"
     id: str
     session_id: str
 
@@ -604,6 +644,8 @@ AnyClientMessage = (
     | ReviewStart
     | ReviewCancel
     | ReviewGet
+    | SpeakerRename
+    | SpeakersRefine
 )
 ClientMessage = Annotated[AnyClientMessage, Field(discriminator="type")]
 

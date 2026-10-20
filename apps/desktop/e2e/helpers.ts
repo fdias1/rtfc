@@ -16,7 +16,9 @@ export const TEST_ENV = {
   RTFC_STT_ENGINE: 'faster-whisper',
   RTFC_STT_MODEL: 'tiny',
   // LLM determinístico (sem rede nem Ollama): cada frase com 4+ palavras vira uma afirmação.
-  RTFC_TEST_FAKE_LLM: '1'
+  RTFC_TEST_FAKE_LLM: '1',
+  // Falantes sem baixar o modelo de voz: alterna entre dois a cada frase.
+  RTFC_DIARIZER: 'fake'
 }
 
 export async function launchApp(extraEnv: Record<string, string> = {}): Promise<Launched> {

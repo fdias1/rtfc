@@ -21,7 +21,14 @@ interface LibraryState {
   close(): void
   setContext(sessionId: string, text: string | null): Promise<string | null>
   generateContext(sessionId: string): Promise<string | null>
+  /** Nomeia um falante (vazio volta para "Falante N"). Devolve a mensagem de erro, se houver. */
+  renameSpeaker(sessionId: string, speaker: string, name: string | null): Promise<string | null>
+  /** Refaz a identificação dos falantes a partir do áudio da sessão salva. */
+  refineSpeakers(sessionId: string): Promise<string | null>
 }
+
+/** Refinar decodifica o áudio inteiro e analisa cada frase: pode levar minutos numa sessão longa. */
+const REFINE_TIMEOUT_MS = 10 * 60_000
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
@@ -94,6 +101,20 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   async generateContext(sessionId) {
     const reply = await backend.request({ type: 'session.generate_context', session_id: sessionId })
     return reply.type === 'error' ? reply.message : null
+  },
+
+  async renameSpeaker(sessionId, speaker, name) {
+    const reply = await backend.request({ type: 'speaker.rename', session_id: sessionId, speaker, name })
+    return reply.type === 'error' ? reply.message : null
+  },
+
+  async refineSpeakers(sessionId) {
+    try {
+      const reply = await backend.request({ type: 'speakers.refine', session_id: sessionId }, REFINE_TIMEOUT_MS)
+      return reply.type === 'error' ? reply.message : null
+    } catch (err) {
+      return errorMessage(err)
+    }
   },
 
   close() {

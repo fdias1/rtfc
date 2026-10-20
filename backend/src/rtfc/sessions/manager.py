@@ -24,6 +24,8 @@ from rtfc.audio.sources import AudioSourceError, FileDecoder, LiveRecorder
 from rtfc.claims import Anchor, ClaimPipeline, manual_claim, to_claim_data
 from rtfc.claims.extractor import generate_context
 from rtfc.config import SecretStore, SettingsStore
+from rtfc.diarization import MIN_EMBED_S, DiarizationService, speaker_label
+from rtfc.diarization.session import Changes, SessionDiarizer
 from rtfc.factcheck.review import ReviewService
 from rtfc.factcheck.service import PRIORITY_MANUAL, CheckContext, CheckService
 from rtfc.llm import LlmClient, LlmError
@@ -34,6 +36,8 @@ from rtfc.protocol import (
     SessionListItem,
     SessionProgress,
     SessionUpdated,
+    SpeakerAssignment,
+    SpeakersUpdated,
     TranscriptPartial,
     TranscriptSegment,
     TranscriptSegmentData,
@@ -47,8 +51,9 @@ from rtfc.storage import (
     StoredWord,
     SubtitleWriter,
     TranscriptStore,
+    rewrite_subtitles,
 )
-from rtfc.stt.base import pcm16_to_float32
+from rtfc.stt.base import AudioArray, pcm16_to_float32
 from rtfc.stt.files import transcribe_audio
 from rtfc.stt.live import LiveTranscriber
 from rtfc.stt.segmenter import Segment
@@ -59,6 +64,7 @@ log = logging.getLogger(__name__)
 EventSink = Callable[[BaseModel], Awaitable[None]]
 
 LIVE_PROGRESS_EVERY_MS = 1000
+RATE = 16_000
 SESSION_ID_RE = re.compile(r"\d{8}-\d{6}-(mic|system|file)-[0-9a-f]{4}")
 
 
@@ -102,6 +108,10 @@ class Session:
         self.segment_count = 0
         self.latencies_ms: list[int] = []
         self._last_progress_ms = 0
+        self.diarizer: SessionDiarizer | None = None
+        self.on_relabel: Callable[[Changes], Awaitable[None]] | None = None
+        self.file_pcm: bytearray | None = None
+        """PCM 16 kHz do arquivo inteiro (sessões de arquivo), para a diarização."""
 
     @property
     def id(self) -> str:
@@ -132,9 +142,26 @@ class Session:
 
     # --- Callbacks da transcrição -------------------------------------------
 
+    def segment_audio(self, start_s: float, end_s: float) -> AudioArray | None:
+        a, b = int(start_s * RATE), int(end_s * RATE)
+        if self.file_pcm is not None:
+            return pcm16_to_float32(bytes(self.file_pcm[a * 2 : b * 2]))
+        read = self.buffer.read_since(a)
+        if read.start_sample > a:
+            return None  # já saiu do buffer
+        return pcm16_to_float32(read.data[: (b - a) * 2])
+
     async def on_segment(self, seg: Segment, latency_s: float) -> None:
+        index = self.segment_count
+        self.segment_count += 1
+        speaker: str | None = None
+        changes: Changes = {}
+        if self.diarizer:
+            speaker, changes = await self.diarizer.assign(
+                index, self.segment_audio(seg.start, seg.end)
+            )
         stored = StoredSegment(
-            index=self.segment_count,
+            index=index,
             start_ms=round(seg.start * 1000),
             end_ms=round(seg.end * 1000),
             text=seg.text,
@@ -142,11 +169,13 @@ class Session:
                 StoredWord(round(w.start * 1000), round(w.end * 1000), w.text.strip(), w.prob)
                 for w in seg.words
             ),
+            speaker=speaker,
         )
-        self.segment_count += 1
         if self._store:
             self._store.add_segment(self.id, stored)
-        self.subtitles.add(stored.start_ms, stored.end_ms, stored.text)
+        self.subtitles.add(
+            stored.start_ms, stored.end_ms, stored.text, speaker_label(speaker, self.info.speakers)
+        )
         live = self.info.source != "file"
         latency_ms = round(latency_s * 1000) if live else None
         if latency_ms is not None:
@@ -158,6 +187,8 @@ class Session:
         )
         if self.claims:
             self.claims.submit(stored)
+        if changes and self.on_relabel:
+            await self.on_relabel(changes)
 
     async def on_partial(self, start_s: float, confirmed: str, tentative: str) -> None:
         await self.emit(
@@ -183,7 +214,9 @@ class SessionManager:
         store: TranscriptStore | None = None,
         settings: SettingsStore | None = None,
         secrets: SecretStore | None = None,
+        diarization: DiarizationService | None = None,
     ) -> None:
+        self.diarization = diarization
         self.sessions_dir = sessions_dir or default_sessions_dir()
         self.stt = stt
         self.store = store
@@ -254,7 +287,7 @@ class SessionManager:
         ]
         transcript = "\n".join(
             f"{'>> ' if s.start_ms <= end_ms and s.end_ms >= start_ms else ''}"
-            f"{f'({s.speaker}) ' if s.speaker else ''}{s.text}"
+            f"{f'({who}) ' if (who := speaker_label(s.speaker, info.speakers)) else ''}{s.text}"
             for s in around
         )
         return CheckContext(
@@ -262,6 +295,7 @@ class SessionManager:
             when=datetime.fromisoformat(info.started_at).date(),
             content=info.context,
             transcript=transcript,
+            speakers=info.speakers,
         )
 
     # --- Contexto do conteúdo ---------------------------------------------------
@@ -293,6 +327,7 @@ class SessionManager:
                 segments=segments,
                 language=info.language,
                 when=datetime.fromisoformat(info.started_at).date(),
+                speakers=info.speakers,
             )
         except (LlmError, ValueError) as exc:
             raise SessionError(f"não foi possível gerar o contexto: {exc}") from exc
@@ -332,8 +367,23 @@ class SessionManager:
             min_score=lambda: self.settings.settings.min_claim_score if self.settings else 1,
             on_auto_context=lambda text: self._apply_context(session.id, text, "auto"),
             auto_context_allowed=lambda: session.info.context_source != "user",
+            speakers=lambda: session.info.speakers,
         )
         session.claims.start()
+
+    def _attach_diarizer(self, session: Session) -> None:
+        settings = self.settings.settings if self.settings else None
+        if self.diarization is None or settings is None or not settings.diarization:
+            return
+        session.diarizer = SessionDiarizer(
+            self.diarization, settings.speaker_threshold, wait_model=session.info.source == "file"
+        )
+        self.diarization.warm_up()
+
+        async def relabel(changes: Changes) -> None:
+            await self._apply_speakers(session.id, changes)
+
+        session.on_relabel = relabel
 
     def get(self, session_id: str) -> Session:
         try:
@@ -403,6 +453,7 @@ class SessionManager:
             )
             session.task = asyncio.create_task(session.transcriber.run())
             self._attach_claims(session)
+            self._attach_diarizer(session)
         session.save()
         self._sessions[session.id] = session
         return session
@@ -441,11 +492,14 @@ class SessionManager:
         self._sessions[session.id] = session
         if self.stt:
             self._attach_claims(session)
+            self._attach_diarizer(session)
         session.task = asyncio.create_task(self._run_file(session, path, media.duration_ms))
         return session
 
     async def _run_file(self, session: Session, path: Path, total_ms: int | None) -> None:
         pcm = bytearray()
+        if session.diarizer:
+            session.file_pcm = pcm
 
         async def progress(ms: int) -> None:
             await session.emit(
@@ -511,8 +565,17 @@ class SessionManager:
         request_id: str | None = None,
         notify: bool = True,
     ) -> SessionEnded:
-        self._sessions.pop(session.id, None)
         session.subtitles.close()
+        if session.diarizer and reason != "error":
+            # Com a sessão inteira, corrige as decisões precoces do modo ao vivo (ADR 0008).
+            changes = session.diarizer.refine()
+            if changes:
+                log.info("sessão %s: refinamento mudou o falante de %d segmentos", session.id,
+                         len(changes))  # fmt: skip
+                await self._apply_speakers(session.id, changes)
+            self._rewrite_subtitles(session.id, session.info)
+        session.file_pcm = None
+        self._sessions.pop(session.id, None)
         if session.latencies_ms:
             lat = sorted(session.latencies_ms)
             log.info(
@@ -560,6 +623,98 @@ class SessionManager:
         )
         if notify:
             await session.emit(event)
+        return event
+
+    # --- Falantes (M4) -----------------------------------------------------------
+
+    async def _apply_speakers(
+        self, session_id: str, changes: Changes, request_id: str | None = None
+    ) -> SpeakersUpdated:
+        if self.store:
+            self.store.set_speakers(session_id, changes)
+        active = self._sessions.get(session_id)
+        if active and active.claims:
+            active.claims.relabel(changes)
+        if self.claim_store:
+            for claim in self.claim_store.set_speakers(session_id, changes):
+                if self.checks:
+                    await self.checks.emit(claim)
+        event = SpeakersUpdated(
+            id=request_id,
+            session_id=session_id,
+            segments=[SpeakerAssignment(index=i, speaker=sp) for i, sp in sorted(changes.items())],
+        )
+        await self.broadcast(event)
+        return event
+
+    def _rewrite_subtitles(self, session_id: str, info: SessionInfo) -> None:
+        if not self.store:
+            return
+        cues = [
+            (s.start_ms, s.end_ms, s.text, speaker_label(s.speaker, info.speakers))
+            for s in self.store.segments(session_id)
+        ]
+        try:
+            rewrite_subtitles(Path(info.dir), cues)
+        except OSError:
+            log.exception("não foi possível regravar as legendas de %s", session_id)
+
+    async def rename_speaker(self, session_id: str, speaker: str, name: str | None) -> SessionInfo:
+        info = self.load_info(session_id)
+        name = (name or "").strip()
+        speakers = dict(info.speakers)
+        if name:
+            speakers[speaker] = name
+        else:
+            speakers.pop(speaker, None)
+        info.speakers = speakers
+        Session.write_info(info)
+        if session_id not in self._sessions:
+            # Ao vivo, as legendas são regravadas no fim da sessão.
+            await asyncio.to_thread(self._rewrite_subtitles, session_id, info)
+        await self.broadcast(SessionUpdated(session=info))
+        return info
+
+    async def refine_speakers(
+        self, session_id: str, request_id: str | None = None
+    ) -> SpeakersUpdated:
+        """Refaz os falantes de uma sessão salva a partir do áudio (botão "Refinar falantes")."""
+        if session_id in self._sessions:
+            raise SessionError("encerre a sessão antes de refinar os falantes")
+        if self.diarization is None or not self.store:
+            raise SessionError("diarização indisponível")
+        info = self.load_info(session_id)
+        segments = self.store.segments(session_id)
+        if not segments:
+            raise SessionError("a sessão não tem transcrição")
+        pcm = bytearray()
+
+        async def ignore(_ms: int) -> None:
+            pass
+
+        try:
+            await FileDecoder(Path(info.audio_path), pcm.extend, ignore).run()
+        except (OSError, AudioSourceError, ffmpeg.FfmpegNotFoundError) as exc:
+            raise SessionError(f"não foi possível ler o áudio: {exc}") from exc
+        threshold = self.settings.settings.speaker_threshold if self.settings else 0.6
+        diarizer = SessionDiarizer(self.diarization, threshold)
+        chunks = [
+            pcm16_to_float32(
+                bytes(pcm[s.start_ms * RATE // 1000 * 2 : s.end_ms * RATE // 1000 * 2])
+            )
+            for s in segments
+        ]
+        embeddings = await self.diarization.embed_many(chunks)
+        if all(e is None for e in embeddings):
+            raise SessionError("não foi possível analisar as vozes (modelo indisponível?)")
+        for s, emb, chunk in zip(segments, embeddings, chunks, strict=True):
+            diarizer.embeddings[s.index] = emb
+            diarizer.durations[s.index] = len(chunk) / RATE
+            diarizer.reliable[s.index] = emb is not None and len(chunk) / RATE >= MIN_EMBED_S
+            diarizer.labels[s.index] = s.speaker
+        changes = diarizer.refine()
+        event = await self._apply_speakers(session_id, changes, request_id)
+        await asyncio.to_thread(self._rewrite_subtitles, session_id, info)
         return event
 
     # --- Sessões salvas -------------------------------------------------------
@@ -668,6 +823,7 @@ class SessionManager:
                 language=info.language,
                 when=datetime.fromisoformat(info.started_at).date(),
                 content_context=info.context,
+                speakers=info.speakers,
             )
         except (LlmError, ValueError) as exc:
             raise SessionError(f"não foi possível preparar o trecho: {exc}") from exc

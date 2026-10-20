@@ -48,3 +48,21 @@ class SubtitleWriter:
     def close(self) -> None:
         self._srt.close()
         self._vtt.close()
+
+
+def rewrite_subtitles(session_dir: Path, cues: list[tuple[int, int, str, str | None]]) -> None:
+    """Regrava SRT e VTT inteiros (depois de renomear ou refinar os falantes).
+
+    `cues`: (início ms, fim ms, texto, nome do falante).
+    """
+    tmp_dir = session_dir / ".subtitles.tmp"
+    tmp_dir.mkdir(exist_ok=True)
+    for f in tmp_dir.iterdir():
+        f.unlink()
+    writer = SubtitleWriter(tmp_dir)
+    for start, end, text, speaker in cues:
+        writer.add(start, end, text, speaker)
+    writer.close()
+    writer.srt_path.replace(session_dir / "transcricao.srt")
+    writer.vtt_path.replace(session_dir / "transcricao.vtt")
+    tmp_dir.rmdir()

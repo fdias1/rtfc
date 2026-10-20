@@ -21,6 +21,7 @@ O rtfc é distribuído sob PolyForm Noncommercial 1.0.0. Por isso, **só são ac
 | mlx, mlx-whisper (só macOS arm64) | MIT |
 | onnxruntime | MIT |
 | PyTorch (dependência do mlx-whisper) | BSD-3-Clause |
+| sherpa-onnx, sherpa-onnx-core (diarização) | Apache-2.0 |
 
 ## Modelos (pesos)
 
@@ -30,6 +31,7 @@ Baixados sob demanda do Hugging Face Hub; não vêm no instalador.
 |---|---|
 | Whisper (OpenAI), incl. conversões `Systran/faster-whisper-*`, `mobiuslabsgmbh/faster-whisper-large-v3-turbo` e `mlx-community/whisper-*` | MIT |
 | Silero VAD (embutido no faster-whisper) | MIT |
+| 3D-Speaker ERes2Net base (embedding de falante, baixado do GitHub do sherpa-onnx) | Apache-2.0 |
 | Qwen3 (Alibaba), via Ollama — LLM local padrão | Apache-2.0 |
 
 ## Busca e checagem

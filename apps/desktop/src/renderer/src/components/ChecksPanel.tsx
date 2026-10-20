@@ -28,6 +28,8 @@ import { changedInReview, useClaims, visibleClaims, type ClaimFilters } from '..
 import { usePlayer } from '../store/player'
 import { EmptyState } from './Panel'
 import { ReviewBar } from './ReviewBar'
+import { speakerLabel } from '../lib/speakers'
+import { useSpeakerNames } from '../store/speakers'
 
 /** Leva a transcrição até o trecho da afirmação (e toca, se houver player). */
 export function revealClaim(claim: ClaimData, seekable: boolean): void {
@@ -164,6 +166,7 @@ function CheckResult({ check }: { check: CheckData }): React.JSX.Element {
 }
 
 function ClaimCard({ claim, focused, seekable }: { claim: ClaimData; focused: boolean; seekable: boolean }) {
+  const names = useSpeakerNames()
   const focus = useClaims((s) => s.focus)
   const discard = useClaims((s) => s.discard)
   const cancel = useClaims((s) => s.cancel)
@@ -211,7 +214,7 @@ function ClaimCard({ claim, focused, seekable }: { claim: ClaimData; focused: bo
           <Clock size={11} />
           {formatDuration(claim.start_ms)}
         </span>
-        {claim.speaker && <span>· {claim.speaker}</span>}
+        {claim.speaker && <span data-testid="claim-speaker">· {speakerLabel(claim.speaker, names)}</span>}
         {claim.origin === 'manual' && (
           <span className="inline-flex items-center gap-0.5" title="Trecho escolhido por você">
             <Hand size={11} /> manual
@@ -311,6 +314,7 @@ function applyFilters(claims: ClaimData[], f: ClaimFilters): ClaimData[] {
 function FilterBar({ claims }: { claims: ClaimData[] }): React.JSX.Element | null {
   const filters = useClaims((s) => s.filters)
   const setFilters = useClaims((s) => s.setFilters)
+  const names = useSpeakerNames()
   if (claims.length === 0) return null
   const counts = Object.fromEntries(
     VERDICT_ORDER.map((v) => [
@@ -381,7 +385,7 @@ function FilterBar({ claims }: { claims: ClaimData[] }): React.JSX.Element | nul
           <option value="all">Todos os falantes</option>
           {speakers.map((s) => (
             <option key={s} value={s}>
-              {s}
+              {speakerLabel(s, names)}
             </option>
           ))}
         </select>

@@ -31,6 +31,8 @@ export type ClientMessage =
   | ReviewStart
   | ReviewCancel
   | ReviewGet
+  | SpeakerRename
+  | SpeakersRefine
 /**
  * This interface was referenced by `RtfcProtocol`'s JSON-Schema
  * via the `definition` "ServerMessage".
@@ -58,6 +60,7 @@ export type ServerMessage =
   | LlmModelsResult
   | SearchTestResult
   | ReviewStatus
+  | SpeakersUpdated
 
 /**
  * rtfc protocol v1
@@ -239,10 +242,12 @@ export interface SettingsData {
   auto_extract: boolean
   auto_review: boolean
   checker: LlmRoleData
+  diarization: boolean
   extractor: LlmRoleData
   min_claim_score: number
   reviewer: LlmRoleData
   search: SearchSettingsData
+  speaker_threshold: number
 }
 /**
  * This interface was referenced by `RtfcProtocol`'s JSON-Schema
@@ -360,6 +365,30 @@ export interface ReviewGet {
   type: 'review.get'
 }
 /**
+ * Dá nome a um falante. `name=None` volta para "Falante N".
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SpeakerRename".
+ */
+export interface SpeakerRename {
+  id: string
+  name: string | null
+  session_id: string
+  speaker: string
+  type: 'speaker.rename'
+}
+/**
+ * Refaz a identificação dos falantes da sessão inteira a partir do áudio.
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SpeakersRefine".
+ */
+export interface SpeakersRefine {
+  id: string
+  session_id: string
+  type: 'speakers.refine'
+}
+/**
  * Enviada pelo servidor assim que a conexão é aceita.
  *
  * This interface was referenced by `RtfcProtocol`'s JSON-Schema
@@ -424,6 +453,9 @@ export interface SessionInfo {
   language: string | null
   media_kind: 'audio' | 'video'
   source: 'mic' | 'system' | 'file'
+  speakers: {
+    [k: string]: string
+  }
   started_at: string
   status: 'recording' | 'processing' | 'completed' | 'interrupted' | 'error'
   stt_engine: string | null
@@ -731,4 +763,26 @@ export interface ReviewStatus {
   state: 'idle' | 'preparing' | 'running' | 'paused' | 'done' | 'cancelled'
   total: number
   type: 'review.status'
+}
+/**
+ * Falantes de segmentos já emitidos mudaram (fusão ao vivo ou refinamento).
+ *
+ * Tem `id` quando é a resposta a um `speakers.refine`.
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SpeakersUpdated".
+ */
+export interface SpeakersUpdated {
+  id: string | null
+  segments: SpeakerAssignment[]
+  session_id: string
+  type: 'speakers.updated'
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "SpeakerAssignment".
+ */
+export interface SpeakerAssignment {
+  index: number
+  speaker: string | null
 }

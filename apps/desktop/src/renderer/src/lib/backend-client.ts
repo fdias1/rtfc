@@ -48,7 +48,7 @@ export class BackendClient {
     if (wasOpen) this.events.onClose()
   }
 
-  request(msg: WithoutId<ClientMessage>): Promise<ServerMessage> {
+  request(msg: WithoutId<ClientMessage>, timeoutMs = REQUEST_TIMEOUT_MS): Promise<ServerMessage> {
     const ws = this.ws
     if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error('sem conexão'))
     const id = String(this.nextId++)
@@ -56,7 +56,7 @@ export class BackendClient {
       const timer = window.setTimeout(() => {
         this.pending.delete(id)
         reject(new Error('timeout'))
-      }, REQUEST_TIMEOUT_MS)
+      }, timeoutMs)
       this.pending.set(id, { resolve, reject, timer })
       ws.send(JSON.stringify({ ...msg, id }))
     })

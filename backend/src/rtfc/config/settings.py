@@ -47,6 +47,10 @@ class Settings(BaseModel):
     check_concurrency: int = Field(default=3, ge=1, le=8)
     min_claim_score: int = Field(default=4, ge=1, le=5)
     """Só registra afirmações com nota de relevância/checabilidade ≥ este valor (ADR 0006)."""
+    diarization: bool = True
+    """Identifica os falantes (M4, ADR 0008)."""
+    speaker_threshold: float = Field(default=0.6, ge=0.2, le=0.9)
+    """Similaridade mínima para dois trechos serem do mesmo falante. Maior = separa mais."""
 
 
 LOCAL_EXTRACTOR = LlmRole(provider="ollama", model="qwen3:8b")

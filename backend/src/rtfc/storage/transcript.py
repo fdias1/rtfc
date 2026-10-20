@@ -96,6 +96,13 @@ class TranscriptStore:
             out.append(StoredSegment(idx, start, end, text, words, speaker))
         return out
 
+    def set_speakers(self, session_id: str, speakers: dict[int, str | None]) -> None:
+        with self._db:
+            self._db.executemany(
+                "UPDATE segment SET speaker = ? WHERE session_id = ? AND idx = ?",
+                [(sp, session_id, idx) for idx, sp in speakers.items()],
+            )
+
     def segment_count(self, session_id: str) -> int:
         row = self._db.execute(
             "SELECT COUNT(*) FROM segment WHERE session_id = ?", (session_id,)

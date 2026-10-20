@@ -28,6 +28,7 @@ from rtfc.config import (
     Settings,
     SettingsStore,
 )
+from rtfc.diarization import DiarizationService
 from rtfc.llm.fake import fake_enabled
 from rtfc.protocol import (
     PROTOCOL_VERSION,
@@ -65,6 +66,8 @@ from rtfc.protocol import (
     SessionUpdated,
     SettingsGet,
     SettingsSet,
+    SpeakerRename,
+    SpeakersRefine,
     SttStatusMessage,
     TranscriptGet,
     TranscriptResult,
@@ -150,6 +153,7 @@ def default_manager() -> SessionManager:
         store=TranscriptStore(data_dir / "rtfc.sqlite"),
         settings=settings,
         secrets=secret_store,
+        diarization=DiarizationService(),
     )
 
 
@@ -170,6 +174,7 @@ class _Connection:
         self._owned: list[str] = []
         self._live: Session | None = None
         self._warned_no_live = False
+        self._tasks: set[asyncio.Task[None]] = set()
         self._unsubscribe = manager.stt.subscribe(self.send_stt) if manager.stt else None
         manager.add_listener(self.send)
 
@@ -295,6 +300,15 @@ class _Connection:
                     else:
                         status = self.manager.review.status(msg.session_id)
                     return status.model_copy(update={"id": msg.id})
+                case SpeakerRename():
+                    info = await self.manager.rename_speaker(msg.session_id, msg.speaker, msg.name)
+                    return SessionUpdated(id=msg.id, session=info)
+                case SpeakersRefine():
+                    # Pode levar minutos: roda à parte para não travar esta conexão.
+                    task = asyncio.create_task(self._refine_speakers(msg))
+                    self._tasks.add(task)
+                    task.add_done_callback(self._tasks.discard)
+                    return None
                 case CheckCancel() | CheckRetry():
                     if self.manager.checks is None:
                         raise SessionError("checagem indisponível")
@@ -317,6 +331,17 @@ class _Connection:
         except ValueError as exc:
             return ErrorMessage(id=msg.id, code="invalid_request", message=str(exc))
         return None
+
+    async def _refine_speakers(self, msg: SpeakersRefine) -> None:
+        reply: BaseModel
+        try:
+            reply = await self.manager.refine_speakers(msg.session_id, request_id=msg.id)
+        except SessionError as exc:
+            reply = ErrorMessage(id=msg.id, code="session_error", message=str(exc))
+        except Exception as exc:
+            log.exception("refinamento de falantes falhou")
+            reply = ErrorMessage(id=msg.id, code="internal_error", message=str(exc))
+        await self.send(reply)
 
     async def _llm_settings(
         self, msg: SettingsGet | SettingsSet | SecretSet | LlmTest | LlmModels | SearchTest

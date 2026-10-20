@@ -108,6 +108,34 @@ export function SettingsDialog({ onClose }: { onClose(): void }): React.JSX.Elem
           <p className="text-xs text-text-muted">
             Escolhido automaticamente para este computador. A troca de modelo pela interface chega numa próxima versão.
           </p>
+          {current && (
+            <>
+              <label className="mt-1 flex items-center gap-2 text-sm text-text">
+                <input
+                  type="checkbox"
+                  checked={current.diarization}
+                  onChange={(e) => setDraft({ ...current, diarization: e.target.checked })}
+                  className="accent-primary"
+                  data-testid="diarization"
+                />
+                Identificar quem está falando (falantes)
+              </label>
+              {current.diarization && (
+                <Row label="Separação de vozes">
+                  <select
+                    value={current.speaker_threshold}
+                    onChange={(e) => setDraft({ ...current, speaker_threshold: Number(e.target.value) })}
+                    className="rounded-md border border-border bg-surface px-2 py-1 text-sm"
+                    data-testid="speaker-threshold"
+                  >
+                    <option value={0.5}>Menos falantes (junta vozes parecidas)</option>
+                    <option value={0.6}>Padrão</option>
+                    <option value={0.7}>Mais falantes (separa vozes parecidas)</option>
+                  </select>
+                </Row>
+              )}
+            </>
+          )}
         </Section>
 
         <Section title="Modelos de IA">

@@ -125,3 +125,13 @@ class ClaimStore:
     def delete_session(self, session_id: str) -> None:
         with self._db:
             self._db.execute("DELETE FROM claim WHERE session_id = ?", (session_id,))
+
+    def set_speakers(self, session_id: str, speakers: dict[int, str | None]) -> list[StoredClaim]:
+        """Atualiza o falante das afirmações pelo segmento onde começam. Devolve as que mudaram."""
+        changed = []
+        for c in self.for_session(session_id):
+            if c.from_segment in speakers and speakers[c.from_segment] != c.speaker:
+                updated = replace(c, speaker=speakers[c.from_segment])
+                self.upsert(updated)
+                changed.append(updated)
+        return changed

@@ -8,6 +8,7 @@ import { EmptyState, Panel } from './components/Panel'
 import { SessionsPanel } from './components/SessionsPanel'
 import { SettingsDialog } from './components/SettingsDialog'
 import { SourcePanel } from './components/SourcePanel'
+import { SpeakersBar } from './components/SpeakersBar'
 import { SttBadge } from './components/SttBadge'
 import { TranscriptView } from './components/TranscriptView'
 import { sessionDate, sessionTitle } from './lib/session-label'
@@ -59,9 +60,10 @@ function TranscriptPanel(): React.JSX.Element {
       <div className="flex h-full flex-col gap-4">
         {playable && <MediaPlayer session={playable} />}
         {shown && <ContextBar session={shown} />}
+        {shown && hasText && <SpeakersBar session={shown} live={!!active} />}
         <div className="min-h-0 flex-1">
           {hasText ? (
-            <TranscriptView seekable={playable !== null} />
+            <TranscriptView seekable={playable !== null} speakers={shown?.speakers} />
           ) : (
             <EmptyState
               icon={<ScrollText size={32} strokeWidth={1.25} />}

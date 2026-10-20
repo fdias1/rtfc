@@ -74,6 +74,14 @@ export const useTranscript = create<TranscriptState>((set, get) => ({
             ? { startMs: msg.start_ms, confirmed: msg.confirmed, tentative: msg.tentative }
             : null
       })
+    } else if (msg.type === 'speakers.updated' && msg.session_id === sessionId) {
+      // Fusão de falantes ao vivo ou refinamento: só os segmentos citados mudam.
+      const changes = new Map(msg.segments.map((a) => [a.index, a.speaker]))
+      set((s) => ({
+        segments: s.segments.map((seg) =>
+          changes.has(seg.index) ? { ...seg, speaker: changes.get(seg.index) ?? null } : seg
+        )
+      }))
     } else if (msg.type === 'session.ended' && msg.session.id === sessionId) {
       set({ partial: null })
     }
