@@ -103,17 +103,24 @@ def test_client_requires_key_for_hosted_providers() -> None:
     assert kwargs["think"] is False
 
 
-def test_default_extractor_follows_openai_key(tmp_path: Path) -> None:
-    secrets = MemorySecretStore()
+def test_defaults_are_local_even_with_openai_key(tmp_path: Path) -> None:
+    secrets = MemorySecretStore({"openai": "sk-x"})
     store = SettingsStore(tmp_path / "settings.json", secrets)
-    assert store.settings.extractor.provider == "ollama"
-    secrets.set("openai", "sk-x")
-    assert store.settings.extractor.provider == "openai"
-    assert store.settings.extractor.model == "gpt-5.4-mini"
-    # Depois de salvar, vale a escolha do usuário, com ou sem chave.
-    local = LlmRole(provider="ollama", model="qwen3:8b")
-    store.save(store.settings.model_copy(update={"extractor": local}))
-    assert SettingsStore(tmp_path / "settings.json", secrets).settings.extractor == local
+    assert store.settings.extractor == LlmRole(provider="ollama", model="qwen3:8b")
+    assert store.settings.checker == LlmRole(provider="ollama", model="qwen3:8b")
+    # A escolha salva do usuário prevalece.
+    online = LlmRole(provider="openai", model="gpt-5.4-mini")
+    store.save(store.settings.model_copy(update={"checker": online}))
+    assert SettingsStore(tmp_path / "settings.json", secrets).settings.checker == online
+
+
+def test_ollama_context_is_raised() -> None:
+    from rtfc.llm.client import OLLAMA_NUM_CTX
+
+    kwargs = LlmClient(
+        LlmRole(provider="ollama", model="qwen3:8b"), MemorySecretStore()
+    )._call_kwargs()
+    assert kwargs["num_ctx"] == OLLAMA_NUM_CTX >= 8192
 
 
 async def test_foreign_script_is_sent_back_for_correction(monkeypatch: pytest.MonkeyPatch) -> None:

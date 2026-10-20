@@ -23,6 +23,7 @@ log = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 MAX_REPAIRS = 2
+OLLAMA_NUM_CTX = 12_288
 
 # Alfabetos que não deveriam aparecer em respostas pt/en/es (grego, cirílico, árabe, indianos,
 # CJK…). Modelos às vezes "vazam" uma palavra de outro idioma no meio do texto.
@@ -67,6 +68,10 @@ class LlmClient:
         self._timeout = timeout_s
 
     @property
+    def is_local(self) -> bool:
+        return self.provider.id == "ollama"
+
+    @property
     def litellm_model(self) -> str:
         return f"{self.provider.litellm_prefix}{self.role.model}"
 
@@ -83,6 +88,9 @@ class LlmClient:
         if self.provider.id == "ollama":
             # Raciocínio (Qwen3, DeepSeek-R1) deixa lento demais para rodar a cada frase.
             kwargs["think"] = False
+            # O padrão do Ollama é 4.096 tokens e o excesso é cortado em silêncio PELO
+            # COMEÇO — justamente as instruções. O prompt de veredicto passa disso.
+            kwargs["num_ctx"] = OLLAMA_NUM_CTX
         return kwargs
 
     def _supports_schema(self) -> bool:

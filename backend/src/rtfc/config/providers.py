@@ -25,7 +25,7 @@ PROVIDERS: dict[str, Provider] = {
             "ollama_chat/",
             False,
             "http://127.0.0.1:11434",
-            ("qwen3:8b", "gemma3:12b", "llama3.1:8b"),
+            ("qwen3:8b", "qwen3:14b", "gemma3:12b"),
         ),
         Provider(
             "anthropic",

@@ -10,6 +10,7 @@ from typing import Literal
 
 from rtfc.config import SearchSettings, SecretStore
 from rtfc.factcheck.verdict import (
+    EVIDENCE_CHARS,
     CheckedVerdict,
     ClaimBackground,
     Evidence,
@@ -47,7 +48,18 @@ class CheckOutcome:
     warnings: list[str]
 
 
-async def _read(results: list[SearchResult], claim: str) -> list[Evidence]:
+LOCAL_MAX_EVIDENCE = 5
+LOCAL_EVIDENCE_CHARS = 1100
+"""Modelo local processa ~180 tokens/s de entrada neste hardware: evidência mais enxuta."""
+
+
+async def _read(
+    results: list[SearchResult],
+    claim: str,
+    *,
+    max_evidence: int = MAX_EVIDENCE,
+    chars: int = EVIDENCE_CHARS,
+) -> list[Evidence]:
     sem = asyncio.Semaphore(FETCH_CONCURRENCY)
 
     async def one(r: SearchResult) -> tuple[SearchResult, str | None]:
@@ -61,12 +73,12 @@ async def _read(results: list[SearchResult], claim: str) -> list[Evidence]:
     # Páginas lidas primeiro; sem texto, o snippet do buscador vale como evidência fraca.
     with_text = [(r, t) for r, t in pages if t]
     snippets = [(r, None) for r, t in pages if not t and len(r.snippet) > 60]
-    chosen = (with_text + snippets)[:MAX_EVIDENCE]
+    chosen = (with_text + snippets)[:max_evidence]
     # Comparar parágrafos de páginas grandes (PDFs de dezenas de páginas) é CPU pesada:
     # fora do event loop, para não travar o WebSocket.
     bodies = await asyncio.gather(
         *(
-            asyncio.to_thread(relevant_passage, text, claim) if text else _value(r.snippet)
+            asyncio.to_thread(relevant_passage, text, claim, chars) if text else _value(r.snippet)
             for r, text in chosen
         )
     )
@@ -111,7 +123,12 @@ async def check_claim(
     candidates = rank(found.results, lists, CANDIDATES)
 
     await on_stage("reading")
-    evidence = await _read(candidates, claim)
+    if client.is_local:
+        evidence = await _read(
+            candidates, claim, max_evidence=LOCAL_MAX_EVIDENCE, chars=LOCAL_EVIDENCE_CHARS
+        )
+    else:
+        evidence = await _read(candidates, claim)
 
     await on_stage("analysis")
     if evidence:

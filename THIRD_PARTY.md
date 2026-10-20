@@ -30,6 +30,7 @@ Baixados sob demanda do Hugging Face Hub; não vêm no instalador.
 |---|---|
 | Whisper (OpenAI), incl. conversões `Systran/faster-whisper-*`, `mobiuslabsgmbh/faster-whisper-large-v3-turbo` e `mlx-community/whisper-*` | MIT |
 | Silero VAD (embutido no faster-whisper) | MIT |
+| Qwen3 (Alibaba), via Ollama — LLM local padrão | Apache-2.0 |
 
 ## Busca e checagem
 

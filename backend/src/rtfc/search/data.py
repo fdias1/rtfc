@@ -83,6 +83,7 @@ TIERS: dict[str, dict[str, tuple[str, ...]]] = {
             *_PRIMARY_GLOBAL,
         ),
         "factchecker": (
+            "agencialupa.org",
             "lupa.uol.com.br",
             "piaui.folha.uol.com.br",
             "aosfatos.org",

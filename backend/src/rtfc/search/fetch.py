@@ -6,6 +6,8 @@ import logging
 import httpx
 
 log = logging.getLogger(__name__)
+# O pypdf avisa de cada fonte que não sabe decodificar; o texto sai mesmo assim.
+logging.getLogger("pypdf").setLevel(logging.ERROR)
 
 MAX_BYTES = 3 * 1024 * 1024
 USER_AGENT = (

@@ -23,6 +23,16 @@ pnpm backend:sync        # uv sync no backend Python
 pnpm dev                  # abre o app; o backend Python sobe sozinho
 ```
 
+Modelo de IA local (padrão, sem custo): instale o [Ollama](https://ollama.com) e baixe o modelo (~5 GB):
+
+```bash
+ollama pull qwen3:8b
+```
+
+Com mais de 16 GB de memória, o `qwen3:14b` (~9 GB) acerta mais e pode ser escolhido em **Configurações**.
+
+Provedores online (OpenAI, Claude, Gemini…) podem ser escolhidos em **Configurações**; são mais rápidos, mas têm custo.
+
 Busca (checagem de fatos): o padrão é um SearXNG local, sem conta. Com o Docker instalado, rode uma vez:
 
 ```bash

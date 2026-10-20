@@ -32,13 +32,9 @@ class SearchSettings(BaseModel):
 class Settings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    extractor: LlmRole = Field(
-        default_factory=lambda: LlmRole(provider="openai", model="gpt-5.4-mini")
-    )
+    extractor: LlmRole = Field(default_factory=lambda: LlmRole(provider="ollama", model="qwen3:8b"))
     """Extrai as afirmações a cada frase: precisa ser rápido (ver ADR 0004)."""
-    checker: LlmRole = Field(
-        default_factory=lambda: LlmRole(provider="openai", model="gpt-5.4-mini")
-    )
+    checker: LlmRole = Field(default_factory=lambda: LlmRole(provider="ollama", model="qwen3:8b"))
     """Analisa as evidências e dá o veredicto (M6)."""
     auto_extract: bool = True
     auto_check: bool = True
@@ -53,15 +49,16 @@ LOCAL_EXTRACTOR = LlmRole(provider="ollama", model="qwen3:8b")
 
 
 def default_settings(secrets: SecretStore | None) -> Settings:
-    """Padrão de fábrica: extração na OpenAI se houver chave; senão, local (Ollama).
+    """Padrão de fábrica: tudo local (Ollama qwen3:8b), sem custo nem envio de texto para fora.
 
-    Com Whisper e um LLM de 8B dividindo a GPU de um Mac de 16 GB, a extração local passa
-    de 10 s ao vivo; a online fica em ~2 s (ADR 0004). O local continua sendo opção.
+    O 8B é o maior que cabe ao vivo junto com o Whisper num Mac de 16 GB: com o 14B
+    (10 GB) a máquina entrou em swap e a transcrição travou (ADR 0007). O 14B segue
+    disponível nas configurações para máquinas com mais memória.
+
+    Provedores online (OpenAI, Claude, Gemini…) continuam disponíveis nas configurações;
+    são mais rápidos e acertam mais (ADR 0004/0007), mas têm custo.
     """
-    settings = Settings()
-    if secrets is None or not secrets.get("openai"):
-        settings.extractor = LOCAL_EXTRACTOR.model_copy()
-    return settings
+    return Settings()
 
 
 class SettingsStore:
