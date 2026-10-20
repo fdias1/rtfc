@@ -104,6 +104,7 @@ async def check_claim(
     content_context: str | None = None,
     speaker: str | None = None,
     transcript: str = "",
+    full_evidence: bool = False,
 ) -> CheckOutcome:
     t0 = time.perf_counter()
     background = ClaimBackground(
@@ -123,7 +124,7 @@ async def check_claim(
     candidates = rank(found.results, lists, CANDIDATES)
 
     await on_stage("reading")
-    if client.is_local:
+    if client.is_local and not full_evidence:
         evidence = await _read(
             candidates, claim, max_evidence=LOCAL_MAX_EVIDENCE, chars=LOCAL_EVIDENCE_CHARS
         )

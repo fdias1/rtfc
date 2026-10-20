@@ -98,7 +98,12 @@ function ChecksColumn({ onOpenSettings }: { onOpenSettings(): void }): React.JSX
   const seekable = shown !== null && (shown.source === 'file' || !active)
   return (
     <Panel title="Checagens">
-      <ChecksPanel seekable={seekable} hasSession={shown !== null} onOpenSettings={onOpenSettings} />
+      <ChecksPanel
+        seekable={seekable}
+        hasSession={shown !== null}
+        reviewable={shown !== null && active === null}
+        onOpenSettings={onOpenSettings}
+      />
     </Panel>
   )
 }

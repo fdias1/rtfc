@@ -108,7 +108,8 @@ class LlmClient:
             from rtfc.llm.fake import fake_reply
 
             await asyncio.sleep(0.05)
-            return LlmResult(fake_reply(messages, schema), 50, "fake/fake")  # type: ignore[arg-type]
+            reply = fake_reply(messages, schema, model=self.role.model)
+            return LlmResult(reply, 50, f"fake/{self.role.model}")  # type: ignore[arg-type]
 
         import litellm
 

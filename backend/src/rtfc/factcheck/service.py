@@ -68,7 +68,8 @@ class CheckService:
         self._seq = itertools.count()
         self._queued: set[str] = set()
         self._running: dict[str, asyncio.Task[None]] = {}
-        self._stage: dict[str, Stage] = {}
+        self.stages: dict[str, Stage] = {}
+        """Etapa atual por afirmação (também usada pela revisão)."""
         self._workers: list[asyncio.Task[None]] = []
         self.durations_ms: list[int] = []
 
@@ -89,9 +90,24 @@ class CheckService:
         self._workers = []
 
     def data(self, claim: StoredClaim) -> BaseModel:
-        """ClaimData com o resultado (o da original, se for repetida) e a etapa atual."""
+        """ClaimData com o resultado (o da original, se for repetida) e a etapa atual.
+
+        Com revisão (M6.1), o resultado principal é o da revisão e o da sessão vira
+        `previous_verdict`.
+        """
         source = claim.dedup_of or claim.id
-        return to_claim_data(claim, self._checks.get(source), self._stage.get(claim.id))
+        live = self._checks.get(source, "live")
+        review = self._checks.get(source, "review")
+        return to_claim_data(
+            claim,
+            review or live,
+            self.stages.get(claim.id),
+            reviewed=review is not None,
+            previous_verdict=live.verdict if review and live else None,
+        )
+
+    async def emit(self, claim: StoredClaim) -> None:
+        await self._emit(claim)
 
     async def enqueue(self, claim: StoredClaim, *, priority: int = PRIORITY_AUTO) -> StoredClaim:
         if claim.id in self._queued or claim.id in self._running:
@@ -170,7 +186,7 @@ class CheckService:
                     raise
             finally:
                 self._running.pop(claim_id, None)
-                self._stage.pop(claim_id, None)
+                self.stages.pop(claim_id, None)
 
     async def _check(self, claim_id: str) -> None:
         claim = self._claims.get(claim_id)
@@ -180,7 +196,7 @@ class CheckService:
         settings = self._settings.settings
 
         async def on_stage(stage: Stage) -> None:
-            self._stage[claim_id] = stage
+            self.stages[claim_id] = stage
             await self._emit(self._claims.get(claim_id) or claim)
 
         await self._set(claim_id, "checking")
@@ -202,12 +218,12 @@ class CheckService:
             raise
         except (LlmError, SearchError, ValueError) as exc:
             log.warning("checagem de %s falhou: %s", claim_id, exc)
-            self._stage.pop(claim_id, None)
+            self.stages.pop(claim_id, None)
             await self._set(claim_id, "error", str(exc)[:300])
             return
         except Exception as exc:
             log.exception("checagem de %s falhou", claim_id)
-            self._stage.pop(claim_id, None)
+            self.stages.pop(claim_id, None)
             await self._set(claim_id, "error", f"erro inesperado: {exc}"[:300])
             return
 
@@ -245,5 +261,5 @@ class CheckService:
             log.info(
                 "fala → veredicto: %.1fs (checagem %.1fs)", age / 1000, outcome.duration_ms / 1000
             )
-        self._stage.pop(claim_id, None)
+        self.stages.pop(claim_id, None)
         await self._set(claim_id, "done")

@@ -74,7 +74,12 @@ def to_check_data(c: StoredCheck) -> CheckData:
 
 
 def to_claim_data(
-    c: StoredClaim, check: StoredCheck | None = None, stage: str | None = None
+    c: StoredClaim,
+    check: StoredCheck | None = None,
+    stage: str | None = None,
+    *,
+    reviewed: bool = False,
+    previous_verdict: str | None = None,
 ) -> ClaimData:
     return ClaimData(
         id=c.id,
@@ -92,9 +97,14 @@ def to_claim_data(
         dedup_of=c.dedup_of,
         speaker=c.speaker,
         context=c.context,
-        stage=stage if c.status == "checking" else None,  # type: ignore[arg-type]
+        stage=stage  # type: ignore[arg-type]
+        if c.status == "checking" or c.review_status == "checking"
+        else None,
         check=to_check_data(check) if check else None,
         error=c.error,
+        reviewed=reviewed,
+        previous_verdict=previous_verdict,  # type: ignore[arg-type]
+        review_status=c.review_status,  # type: ignore[arg-type]
     )
 
 

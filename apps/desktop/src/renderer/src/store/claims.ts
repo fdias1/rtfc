@@ -1,7 +1,7 @@
 // Afirmações da sessão exibida, estado do extrator e afirmação em foco.
 
 import { create } from 'zustand'
-import type { ClaimData, ExtractorStatus, ServerMessage } from '@rtfc/protocol'
+import type { ClaimData, ExtractorStatus, ReviewStatus, ServerMessage } from '@rtfc/protocol'
 import { backend, onServerMessage } from '../lib/connection'
 import type { Verdict } from '../lib/verdict'
 import type { TranscriptSelection } from './transcript'
@@ -10,6 +10,15 @@ export interface ClaimFilters {
   verdict: Verdict | 'all'
   speaker: string | 'all'
   pendingOnly: boolean
+  /** Só as afirmações cujo veredicto mudou na rechecagem com o modelo de qualidade. */
+  changedOnly: boolean
+}
+
+export type ReviewScope = 'all' | 'pending' | 'doubtful'
+
+/** O veredicto mudou entre a checagem ao vivo e a revisão? */
+export function changedInReview(c: ClaimData): boolean {
+  return c.reviewed && !!c.previous_verdict && c.previous_verdict !== c.check?.verdict
 }
 
 interface ClaimsState {
@@ -22,6 +31,10 @@ interface ClaimsState {
   error: string | null
   filters: ClaimFilters
   setFilters(filters: Partial<ClaimFilters>): void
+  review: ReviewStatus | null
+  startReview(scope: ReviewScope): Promise<void>
+  refreshReview(): Promise<void>
+  cancelReview(): Promise<void>
   cancel(claimId: string): Promise<void>
   retry(claimId: string): Promise<void>
   reset(sessionId: string): void
@@ -57,7 +70,30 @@ export const useClaims = create<ClaimsState>((set, get) => ({
   focusedId: null,
   submitting: false,
   error: null,
-  filters: { verdict: 'all', speaker: 'all', pendingOnly: false },
+  filters: { verdict: 'all', speaker: 'all', pendingOnly: false, changedOnly: false },
+  review: null,
+
+  async startReview(scope) {
+    const sessionId = get().sessionId
+    if (!sessionId) return
+    const reply = await backend.request({ type: 'review.start', session_id: sessionId, scope })
+    if (reply.type === 'review.status') set({ review: reply })
+    else if (reply.type === 'error') set({ error: reply.message })
+  },
+
+  async refreshReview() {
+    const sessionId = get().sessionId
+    if (!sessionId) return
+    const review = await backend.request({ type: 'review.get', session_id: sessionId })
+    if (review.type === 'review.status' && get().sessionId === sessionId) set({ review })
+  },
+
+  async cancelReview() {
+    const sessionId = get().sessionId
+    if (!sessionId) return
+    const reply = await backend.request({ type: 'review.cancel', session_id: sessionId })
+    if (reply.type === 'review.status') set({ review: reply })
+  },
 
   setFilters(filters) {
     set((s) => ({ filters: { ...s.filters, ...filters } }))
@@ -75,7 +111,7 @@ export const useClaims = create<ClaimsState>((set, get) => ({
   },
 
   reset(sessionId) {
-    set({ sessionId, byId: {}, extractor: null, focusedId: null, error: null })
+    set({ sessionId, byId: {}, extractor: null, focusedId: null, error: null, review: null })
   },
 
   async load(sessionId) {
@@ -84,6 +120,7 @@ export const useClaims = create<ClaimsState>((set, get) => ({
     if (reply.type === 'claims.result' && get().sessionId === sessionId) {
       set({ byId: Object.fromEntries(reply.claims.map((c) => [c.id, c])) })
     }
+    await get().refreshReview()
   },
 
   focus(claimId) {
@@ -124,6 +161,8 @@ export const useClaims = create<ClaimsState>((set, get) => ({
       set((s) => ({ byId: { ...s.byId, [msg.claim.id]: msg.claim } }))
     } else if (msg.type === 'extractor.status' && msg.session_id === get().sessionId) {
       set({ extractor: msg })
+    } else if (msg.type === 'review.status' && msg.session_id === get().sessionId) {
+      set({ review: msg })
     }
   }
 }))

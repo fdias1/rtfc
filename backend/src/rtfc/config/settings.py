@@ -36,6 +36,10 @@ class Settings(BaseModel):
     """Extrai as afirmações a cada frase: precisa ser rápido (ver ADR 0004)."""
     checker: LlmRole = Field(default_factory=lambda: LlmRole(provider="ollama", model="qwen3:8b"))
     """Analisa as evidências e dá o veredicto (M6)."""
+    reviewer: LlmRole = Field(default_factory=lambda: LlmRole(provider="ollama", model="qwen3:14b"))
+    """Recheca depois da sessão, com o Whisper fora da memória (M6.1): pode ser maior/mais lento."""
+    auto_review: bool = False
+    """Rechecar automaticamente com o revisor ao encerrar uma sessão."""
     auto_extract: bool = True
     auto_check: bool = True
     """Checa automaticamente cada afirmação extraída."""

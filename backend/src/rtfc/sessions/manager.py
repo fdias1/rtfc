@@ -24,6 +24,7 @@ from rtfc.audio.sources import AudioSourceError, FileDecoder, LiveRecorder
 from rtfc.claims import Anchor, ClaimPipeline, manual_claim, to_claim_data
 from rtfc.claims.extractor import generate_context
 from rtfc.config import SecretStore, SettingsStore
+from rtfc.factcheck.review import ReviewService
 from rtfc.factcheck.service import PRIORITY_MANUAL, CheckContext, CheckService
 from rtfc.llm import LlmClient, LlmError
 from rtfc.protocol import (
@@ -192,6 +193,7 @@ class SessionManager:
         self._sessions: dict[str, Session] = {}
         self._listeners: set[EventSink] = set()
         self.checks: CheckService | None = None
+        self.review: ReviewService | None = None
         if store and self.claim_store and settings and secrets:
             self.check_store = CheckStore(store.db)
             stale = self.claim_store.interrupt_pending()
@@ -208,6 +210,16 @@ class SessionManager:
                 broadcast=self.broadcast,
                 session_context=self._session_context,
                 speech_age=self.speech_age_ms,
+            )
+            self.review = ReviewService(
+                claims=self.claim_store,
+                checks=self.check_store,
+                check_service=self.checks,
+                settings=settings,
+                secrets=secrets,
+                broadcast=self.broadcast,
+                session_context=self._session_context,
+                stt=stt,
             )
 
     # --- Eventos para todas as conexões ----------------------------------------
@@ -286,6 +298,9 @@ class SessionManager:
             raise SessionError(f"não foi possível gerar o contexto: {exc}") from exc
         return await self._apply_context(session_id, result.value.context, "auto")
 
+    def _live_sessions(self, *, but: str | None = None) -> list[Session]:
+        return [s for sid, s in self._sessions.items() if sid != but and s.info.source != "file"]
+
     def claim_data(self, claim: StoredClaim) -> ClaimData:
         if self.checks:
             return self.checks.data(claim)  # type: ignore[return-value]
@@ -363,6 +378,9 @@ class SessionManager:
     ) -> Session:
         if source not in ("mic", "system"):
             raise SessionError(f"fonte ao vivo inválida: {source}")
+        if self.review:
+            # A revisão usa um modelo grande: ao vivo a memória volta para o Whisper.
+            await self.review.pause()
         session = Session(self._new_info(source, language, context), emit, self.store)
         session.recorder = LiveRecorder(
             Path(session.info.audio_path), session.buffer.write, input_rate=sample_rate
@@ -504,6 +522,21 @@ class SessionManager:
                 lat[len(lat) // 2],
                 lat[int(0.9 * (len(lat) - 1))],
             )
+        if (
+            self.review
+            and session.info.source != "file"
+            and not self._live_sessions(but=session.id)
+        ):
+            await self.review.resume()
+        if (
+            self.review
+            and self.settings
+            and self.settings.settings.auto_review
+            and reason != "error"
+            and self.claim_store
+            and self.claim_store.for_session(session.id)
+        ):
+            await self.review.start(session.id, "pending")
         if session.claims and session.claims.latencies_ms:
             lat = sorted(session.claims.latencies_ms)
             log.info(
@@ -583,6 +616,8 @@ class SessionManager:
     async def delete(self, session_id: str) -> None:
         if session_id in self._sessions:
             raise SessionError("encerre a sessão antes de apagá-la")
+        if self.review:
+            await self.review.cancel(session_id)
         path = self._session_dir(session_id)
         await asyncio.to_thread(shutil.rmtree, path)
         if self.store:

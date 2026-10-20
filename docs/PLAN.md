@@ -146,7 +146,32 @@ Cada sessão também tem uma pasta: `sessions/<id>/{audio.ogg, transcricao.srt, 
 
 **Aceite:** com uma afirmação real conhecida, veredicto em ≤ 30 s (p90) depois da extração; **de ponta a ponta, da fala ao veredicto na UI, ≤ 35 s (p90)** ao vivo no M2 Pro com modelo online, medido por timestamps registrados em cada etapa (fala, texto confirmado, afirmação, veredicto); cancelar no meio interrompe as requisições em andamento (visível nos logs); um teste automatizado injeta uma URL falsa na resposta do LLM e verifica que ela é removida e o veredicto rebaixado.
 
-### M7 — Exportação e robustez · tamanho P
+### M6.1 — Rechecagem com modelo de qualidade · tamanho M · ✅ implementado (ADR 0007)
+**Por quê:** ao vivo, num Mac de 16 GB, só o qwen3:8b cabe junto com o Whisper (ADR 0007). O qwen3:14b acerta bem mais (45% × 32% de concordância exata; 65% × 52% na direção), mas só roda bem quando a transcrição não está ocupando a memória. A ideia: checar rápido durante a sessão e revisar com o modelo melhor depois.
+
+**Como funciona:**
+- **Novo papel "revisor"** nas configurações, ao lado de extração e checagem. Padrão: Ollama `qwen3:14b`, com o orçamento de evidência completo (6 trechos de 1.600 caracteres). Pode ser também um modelo online.
+- **Botão "Rechecar com modelo de qualidade"** numa sessão encerrada ou salva. Rechecar tudo ou só as pendentes de revisão; opção "só as que o modelo rápido marcou como inconclusivas ou fora de contexto". Mostra a estimativa ("~20 afirmações · ~20 min"), o progresso (12/20) e permite cancelar.
+- **Opção "rechecar automaticamente ao encerrar a sessão"**, desligada por padrão.
+- **Gestão de memória antes de começar:**
+  - descarregar o Whisper do processo (`SttService.unload()`: solta o motor e limpa o cache do MLX);
+  - descarregar o modelo rápido do Ollama (`keep_alive: 0`).
+- **Gestão de memória ao terminar:** descarregar o revisor. O Whisper volta sozinho, sob demanda, na próxima sessão.
+- **Conflito com sessão ao vivo:** iniciar uma sessão ao vivo durante a revisão pede confirmação e pausa a revisão; ela continua depois.
+- **Histórico das checagens:** cada afirmação guarda a checagem da sessão (rápida) e a da revisão (`pass = live | review`). O card mostra o veredicto da revisão como principal e indica "mudou: antes era X (modelo rápido)". Há um filtro "mudou na revisão".
+- **Fila:** reaproveita o `CheckService` com prioridade baixa, 1 worker para revisor local, e os jobs carregam o papel (checker × revisor).
+- **Migração:** `check_result` passa de chave `claim_id` para (`claim_id`, `pass`).
+
+**Testes:**
+- unitários: `unload` do STT; descarga no Ollama (mock HTTP); roteamento por papel; migração; prioridade e cancelamento da revisão;
+- E2E com provedor falso: encerrar, rechecar, ver o "mudou" e filtrar.
+
+**Aceite:**
+- Revisão de uma sessão de 90 s no M2 Pro sem swap relevante (memória livre ≥ 20% durante a revisão), com todas as afirmações revisadas. **Não cumprido:** 5–7% livre e ~16 GB de swap com outros apps abertos (ver ADR 0007).
+- Sessão ao vivo logo depois volta a transcrever normalmente (Whisper recarregado).
+- Na amostra de 40 do dataset, os veredictos revisados reproduzem os números do qwen3:14b (~45% exata, ~65% direção).
+
+ · tamanho P
 - Exportação em Markdown (relatório com veredictos, timestamps e fontes), JSON completo, SRT e VTT.
 - **Soak test de 2 h** ao vivo, monitorando memória do renderer e do sidecar, tamanho da fila e latência ao longo do tempo.
 - Recuperação: sessão interrompida por crash reabre com o áudio e a transcrição até o último ponto, marcada como "interrompida".
@@ -175,7 +200,7 @@ Cada sessão também tem uma pasta: `sessions/<id>/{audio.ogg, transcricao.srt, 
 ## 4. Ordem e paralelismo
 
 ```
-M0 ─► M1 ─► M2 ─► M3 ─► M4 ──────────────┐
+M0 ─► M1 ─► M2 ─► M3 ─► M4 ──────────────┐   (M6.1 depois do M6)
          └──────► M5 ─► M6 ──────────────┼─► M7 ─► M9
                    └──► M8 (contínuo) ───┘
 ```

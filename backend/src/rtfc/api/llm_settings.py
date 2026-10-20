@@ -50,6 +50,8 @@ def settings_result(request_id: str, store: SettingsStore, secrets: SecretStore)
         settings=SettingsData(
             extractor=_role_data(s.extractor),
             checker=_role_data(s.checker),
+            reviewer=_role_data(s.reviewer),
+            auto_review=s.auto_review,
             auto_extract=s.auto_extract,
             auto_check=s.auto_check,
             search=SearchSettingsData.model_validate(s.search.model_dump()),
@@ -92,6 +94,8 @@ def set_settings(msg: SettingsSet, store: SettingsStore, secrets: SecretStore) -
             update={
                 "extractor": _role(msg.settings.extractor),
                 "checker": _role(msg.settings.checker),
+                "reviewer": _role(msg.settings.reviewer),
+                "auto_review": msg.settings.auto_review,
                 "auto_extract": msg.settings.auto_extract,
                 "auto_check": msg.settings.auto_check,
                 "min_claim_score": msg.settings.min_claim_score,

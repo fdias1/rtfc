@@ -11,7 +11,7 @@ import type {
 } from '@rtfc/protocol'
 import { backend } from '../lib/connection'
 
-export type Role = 'extractor' | 'checker'
+export type Role = 'extractor' | 'checker' | 'reviewer'
 
 interface SettingsState {
   settings: SettingsData | null

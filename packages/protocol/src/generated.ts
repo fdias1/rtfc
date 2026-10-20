@@ -28,6 +28,9 @@ export type ClientMessage =
   | CheckCancel
   | CheckRetry
   | SearchTest
+  | ReviewStart
+  | ReviewCancel
+  | ReviewGet
 /**
  * This interface was referenced by `RtfcProtocol`'s JSON-Schema
  * via the `definition` "ServerMessage".
@@ -54,6 +57,7 @@ export type ServerMessage =
   | LlmTestResult
   | LlmModelsResult
   | SearchTestResult
+  | ReviewStatus
 
 /**
  * rtfc protocol v1
@@ -233,9 +237,11 @@ export interface SettingsSet {
 export interface SettingsData {
   auto_check: boolean
   auto_extract: boolean
+  auto_review: boolean
   checker: LlmRoleData
   extractor: LlmRoleData
   min_claim_score: number
+  reviewer: LlmRoleData
   search: SearchSettingsData
 }
 /**
@@ -278,7 +284,7 @@ export interface SecretSet {
 export interface LlmTest {
   config: LlmRoleData | null
   id: string
-  role: 'extractor' | 'checker'
+  role: 'extractor' | 'checker' | 'reviewer'
   type: 'llm.test'
 }
 /**
@@ -319,6 +325,39 @@ export interface SearchTest {
   id: string
   search: SearchSettingsData
   type: 'search.test'
+}
+/**
+ * Recheca as afirmações da sessão com o modelo de qualidade.
+ *
+ * scope: `all` = todas; `pending` = as ainda não revisadas; `doubtful` = as que o modelo
+ * rápido deu como inconclusivas, fora de contexto ou com erro.
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "ReviewStart".
+ */
+export interface ReviewStart {
+  id: string
+  scope: 'all' | 'pending' | 'doubtful'
+  session_id: string
+  type: 'review.start'
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "ReviewCancel".
+ */
+export interface ReviewCancel {
+  id: string
+  session_id: string
+  type: 'review.cancel'
+}
+/**
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "ReviewGet".
+ */
+export interface ReviewGet {
+  id: string
+  session_id: string
+  type: 'review.get'
 }
 /**
  * Enviada pelo servidor assim que a conexão é aceita.
@@ -554,6 +593,9 @@ export interface ClaimData {
   from_word: number
   id: string
   origin: 'auto' | 'manual'
+  previous_verdict: ('verdadeiro' | 'fora_de_contexto' | 'falso' | 'inconclusivo') | null
+  review_status: ('queued' | 'checking' | 'done' | 'error' | 'cancelled') | null
+  reviewed: boolean
   session_id: string
   source_text: string
   speaker: string | null
@@ -672,4 +714,21 @@ export interface SearchTestResult {
   provider: string
   results: number
   type: 'search.test.result'
+}
+/**
+ * Progresso da rechecagem de uma sessão com o modelo de qualidade.
+ *
+ * This interface was referenced by `RtfcProtocol`'s JSON-Schema
+ * via the `definition` "ReviewStatus".
+ */
+export interface ReviewStatus {
+  done: number
+  eta_s: number | null
+  id: string | null
+  message: string | null
+  model: string | null
+  session_id: string
+  state: 'idle' | 'preparing' | 'running' | 'paused' | 'done' | 'cancelled'
+  total: number
+  type: 'review.status'
 }

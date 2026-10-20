@@ -1,12 +1,20 @@
-"""Resultados das checagens (um por afirmação, substituído ao rechecar)."""
+"""Resultados das checagens: um por afirmação e por passada.
+
+`live` é a checagem feita durante a sessão (modelo rápido); `review` é a rechecagem com o
+modelo de qualidade depois da sessão (M6.1). Rechecar substitui o resultado da mesma passada.
+"""
 
 import json
 import sqlite3
 from dataclasses import dataclass
+from typing import Literal
+
+Pass = Literal["live", "review"]
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS check_result (
-    claim_id        TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS check_run (
+    claim_id        TEXT NOT NULL,
+    pass            TEXT NOT NULL,
     verdict         TEXT NOT NULL,
     confidence      REAL NOT NULL,
     justification   TEXT NOT NULL,
@@ -15,7 +23,8 @@ CREATE TABLE IF NOT EXISTS check_result (
     queries         TEXT NOT NULL,
     checked_at      TEXT NOT NULL,
     duration_ms     INTEGER NOT NULL,
-    sources         TEXT NOT NULL
+    sources         TEXT NOT NULL,
+    PRIMARY KEY (claim_id, pass)
 );
 """
 
@@ -49,22 +58,41 @@ class CheckStore:
     def __init__(self, db: sqlite3.Connection) -> None:
         self._db = db
         self._db.executescript(SCHEMA)
+        self._migrate_v1()
 
-    def save(self, c: StoredCheck) -> None:
+    def _migrate_v1(self) -> None:
+        """Bancos anteriores ao M6.1 tinham `check_result` (um resultado por afirmação)."""
+        exists = self._db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'check_result'"
+        ).fetchone()
+        if not exists:
+            return
         with self._db:
             self._db.execute(
-                "INSERT OR REPLACE INTO check_result VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO check_run SELECT claim_id, 'live', verdict, confidence,"
+                " justification, model, search_provider, queries, checked_at, duration_ms,"
+                " sources FROM check_result"
+            )
+            self._db.execute("DROP TABLE check_result")
+
+    def save(self, c: StoredCheck, pass_: Pass = "live") -> None:
+        with self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO check_run VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    c.claim_id, c.verdict, c.confidence, c.justification, c.model,
+                    c.claim_id, pass_, c.verdict, c.confidence, c.justification, c.model,
                     c.search_provider, json.dumps(list(c.queries), ensure_ascii=False),
                     c.checked_at, c.duration_ms,
                     json.dumps([s.__dict__ for s in c.sources], ensure_ascii=False),
                 ),
             )  # fmt: skip
 
-    def get(self, claim_id: str) -> StoredCheck | None:
+    def get(self, claim_id: str, pass_: Pass = "live") -> StoredCheck | None:
         row = self._db.execute(
-            "SELECT * FROM check_result WHERE claim_id = ?", (claim_id,)
+            "SELECT claim_id, verdict, confidence, justification, model, search_provider,"
+            " queries, checked_at, duration_ms, sources FROM check_run"
+            " WHERE claim_id = ? AND pass = ?",
+            (claim_id, pass_),
         ).fetchone()
         if not row:
             return None
@@ -77,5 +105,5 @@ class CheckStore:
     def delete(self, claim_ids: list[str]) -> None:
         with self._db:
             self._db.executemany(
-                "DELETE FROM check_result WHERE claim_id = ?", [(i,) for i in claim_ids]
+                "DELETE FROM check_run WHERE claim_id = ?", [(i,) for i in claim_ids]
             )

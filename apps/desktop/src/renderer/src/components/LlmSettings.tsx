@@ -11,7 +11,11 @@ const ROLE_INFO: Record<Role, { title: string; hint: string }> = {
   },
   checker: {
     title: 'Checagem (veredicto)',
-    hint: 'Analisa as fontes encontradas e decide o veredicto. Usado a partir da checagem de fatos.'
+    hint: 'Analisa as fontes e decide o veredicto durante a sessão. Ao vivo divide o computador com a transcrição.'
+  },
+  reviewer: {
+    title: 'Revisão (modelo de qualidade)',
+    hint: 'Rechecagem depois da sessão, com a transcrição fora da memória: pode ser um modelo maior e mais lento (ex.: qwen3:14b).'
   }
 }
 
@@ -241,6 +245,22 @@ export function LlmSettings({
         providers={providers}
         onChange={(v) => onChange({ ...draft, checker: v })}
       />
+      <RoleEditor
+        role="reviewer"
+        value={draft.reviewer}
+        providers={providers}
+        onChange={(v) => onChange({ ...draft, reviewer: v })}
+      />
+      <label className="flex items-center gap-2 text-sm text-text">
+        <input
+          type="checkbox"
+          checked={draft.auto_review}
+          onChange={(e) => onChange({ ...draft, auto_review: e.target.checked })}
+          className="accent-primary"
+          data-testid="auto-review"
+        />
+        Rechecar automaticamente com o modelo de qualidade ao encerrar cada sessão
+      </label>
       <div className="flex flex-col gap-2 rounded-md border border-border p-3">
         <p className="text-sm font-medium text-text">Chaves de API</p>
         <p className="text-xs text-text-muted">

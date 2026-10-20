@@ -47,6 +47,17 @@ O usuário escolheu primeiro o 14B, que acertou mais. No teste ao vivo, porém, 
 - O ganho de qualidade do 14B pode ser aproveitado **depois da sessão**, quando o Whisper já saiu da memória: é o "rechecar com modelo de qualidade" (próximo passo).
 - Requer `ollama pull qwen3:8b` (5,2 GB).
 
+## Rechecagem com modelo de qualidade (M6.1, implementada)
+- Novo papel **"revisor"** nas configurações. Padrão: `qwen3:14b`, com o orçamento de evidência completo.
+- O botão **"Rechecar com …"** fica numa sessão encerrada ou salva. Escopos: ainda não revisadas, só as duvidosas (inconclusiva, fora de contexto ou erro) ou todas.
+- **Memória:**
+  - antes de começar, descarrega o Whisper (`SttService.unload`) e o modelo rápido do Ollama (`keep_alive: 0`);
+  - ao terminar, descarrega o revisor;
+  - uma sessão ao vivo que começa **pausa** a revisão e devolve a memória; a afirmação em andamento é refeita ao retomar.
+- **Histórico:** `check_run(claim_id, pass)` guarda `live` e `review`. O card mostra a revisão como resultado principal, com "mudou na revisão · antes: X", e há um filtro para essas afirmações.
+- Opcional: rechecar automaticamente ao encerrar a sessão (desligado por padrão).
+- **Aceite parcial (M2 Pro, 16 GB):** a revisão com o 14b funciona (~100 s por afirmação), mas a memória livre ficou em 5–7%, com ~16 GB de swap, com Docker, editores e outros apps abertos. A meta de ≥ 20% **não foi cumprida**. Falta medir se o processo Python devolve de fato a memória do Whisper ao sistema; se não devolver, o STT passa a rodar num subprocesso que pode ser encerrado. Até lá, a orientação é fechar outros apps pesados durante a revisão.
+
 ## Próximos passos
 - Revisão humana do dataset (o selo foi extraído por LLM e há itens com selo trocado).
 - Medir de novo com as agências permitidas, como teto do que a busca permite.

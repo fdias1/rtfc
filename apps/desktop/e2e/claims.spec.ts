@@ -163,3 +163,33 @@ test('contexto do conteúdo: definido antes, editado e gerado pela transcrição
     await app.close()
   }
 })
+
+test('rechecagem com modelo de qualidade: progresso, "mudou" e filtro', async () => {
+  test.setTimeout(240_000)
+  const wav = speechWav(FALA)
+  const { app, win } = await launchApp()
+  try {
+    await stubOpenDialog(app, wav)
+    await win.getByTestId('start-file').click()
+    const cards = win.getByTestId('claim-card')
+    await expect(cards).toHaveCount(2, { timeout: 180_000 })
+    await expect(win.getByTestId('active-session')).toBeHidden({ timeout: 60_000 })
+    for (const card of await cards.all()) {
+      await expect(card.getByTestId('claim-status')).toHaveAttribute('data-verdict', 'verdadeiro', { timeout: 30_000 })
+    }
+
+    // O revisor falso discorda do checador rápido: tudo vira "falso" e aparece o "mudou".
+    await expect(win.getByTestId('start-review')).toContainText('fake-review')
+    await win.getByTestId('start-review').click()
+    await expect(win.getByTestId('review-done')).toContainText('2/2', { timeout: 60_000 })
+    for (const card of await cards.all()) {
+      await expect(card.getByTestId('claim-status')).toHaveAttribute('data-verdict', 'falso')
+      await expect(card.getByTestId('review-chip')).toHaveAttribute('data-review', 'done')
+      await expect(card.getByTestId('changed-in-review')).toContainText('Verdadeiro')
+    }
+    await win.getByTestId('filter-changed').click()
+    await expect(cards).toHaveCount(2)
+  } finally {
+    await app.close()
+  }
+})

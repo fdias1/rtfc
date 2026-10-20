@@ -97,6 +97,32 @@ class SttService:
             await self._set_status(SttStatus("ready", name, model))
             return engine
 
+    async def unload(self) -> bool:
+        """Solta o modelo da memória (a próxima transcrição recarrega). Usado antes de rodar
+        um LLM grande na mesma máquina (M6.1)."""
+        async with self._ready_lock:
+            engine, self._engine = self._engine, None
+            if engine is None:
+                return False
+
+            def free() -> None:
+                nonlocal engine
+                engine = None
+                import gc
+
+                gc.collect()
+                try:
+                    import mlx.core as mx
+
+                    mx.clear_cache()
+                except Exception:
+                    pass
+
+            await asyncio.get_running_loop().run_in_executor(self._executor, free)
+            log.info("STT descarregado da memória")
+            await self._set_status(SttStatus("idle", self.status.engine, self.status.model))
+            return True
+
     async def transcribe(
         self, audio: AudioArray, *, language: str | None, prompt: str | None
     ) -> Transcription:

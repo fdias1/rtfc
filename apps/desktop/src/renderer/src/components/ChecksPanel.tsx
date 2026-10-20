@@ -6,6 +6,7 @@ import {
   ExternalLink,
   Hand,
   ListChecks,
+  Microscope,
   LoaderCircle,
   RotateCcw,
   Settings,
@@ -23,9 +24,10 @@ import {
   isPending,
   type Verdict
 } from '../lib/verdict'
-import { useClaims, visibleClaims, type ClaimFilters } from '../store/claims'
+import { changedInReview, useClaims, visibleClaims, type ClaimFilters } from '../store/claims'
 import { usePlayer } from '../store/player'
 import { EmptyState } from './Panel'
+import { ReviewBar } from './ReviewBar'
 
 /** Leva a transcrição até o trecho da afirmação (e toca, se houver player). */
 export function revealClaim(claim: ClaimData, seekable: boolean): void {
@@ -35,8 +37,47 @@ export function revealClaim(claim: ClaimData, seekable: boolean): void {
   if (seekable) usePlayer.getState().seek(claim.start_ms)
 }
 
+function ReviewChip({ claim }: { claim: ClaimData }): React.JSX.Element | null {
+  if (claim.review_status === 'queued' || claim.review_status === 'checking') {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-primary"
+        data-testid="review-chip"
+        data-review={claim.review_status}
+      >
+        <Microscope size={11} />
+        {claim.review_status === 'checking'
+          ? claim.stage
+            ? STAGE_LABEL[claim.stage]
+            : 'revisando…'
+          : 'na fila da revisão'}
+      </span>
+    )
+  }
+  if (claim.reviewed) {
+    return (
+      <span
+        className="inline-flex items-center gap-0.5 text-primary"
+        title="Rechecada com o modelo de qualidade"
+        data-testid="review-chip"
+        data-review="done"
+      >
+        <Microscope size={11} /> revisada
+      </span>
+    )
+  }
+  if (claim.review_status === 'error') {
+    return (
+      <span className="text-verdict-false" data-testid="review-chip" data-review="error">
+        revisão falhou
+      </span>
+    )
+  }
+  return null
+}
+
 function StatusChip({ claim }: { claim: ClaimData }): React.JSX.Element {
-  if (claim.status === 'done' && claim.check) {
+  if ((claim.status === 'done' || claim.reviewed) && claim.check) {
     const v = VERDICT[claim.check.verdict]
     const Icon = v.icon
     return (
@@ -129,7 +170,7 @@ function ClaimCard({ claim, focused, seekable }: { claim: ClaimData; focused: bo
   const retry = useClaims((s) => s.retry)
   const ref = useRef<HTMLLIElement>(null)
   const pending = isPending(claim)
-  const verdict = claim.status === 'done' ? claim.check?.verdict : undefined
+  const verdict = claim.status === 'done' || claim.reviewed ? claim.check?.verdict : undefined
 
   useEffect(() => {
     if (focused) ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
@@ -184,6 +225,7 @@ function ClaimCard({ claim, focused, seekable }: { claim: ClaimData; focused: bo
             <Copy size={11} /> repetida
           </span>
         )}
+        <ReviewChip claim={claim} />
         <StatusChip claim={claim} />
         <span className="flex gap-1.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           {pending && action('Cancelar checagem', <Ban size={13} />, () => void cancel(claim.id), 'cancel-check')}
@@ -209,7 +251,14 @@ function ClaimCard({ claim, focused, seekable }: { claim: ClaimData; focused: bo
           <TriangleAlert size={12} className="mt-0.5 shrink-0" /> {claim.error}
         </p>
       )}
-      {claim.status === 'done' && claim.check && <CheckResult check={claim.check} />}
+      {changedInReview(claim) && claim.previous_verdict && (
+        <p className="mt-1.5 text-[11px] text-text-muted" data-testid="changed-in-review">
+          Mudou na revisão · antes:{' '}
+          <span className={VERDICT[claim.previous_verdict].text}>{VERDICT[claim.previous_verdict].label}</span> (modelo
+          rápido)
+        </p>
+      )}
+      {claim.check && (claim.status === 'done' || claim.reviewed) && <CheckResult check={claim.check} />}
     </li>
   )
 }
@@ -254,7 +303,8 @@ function applyFilters(claims: ClaimData[], f: ClaimFilters): ClaimData[] {
     (c) =>
       (!f.pendingOnly || isPending(c)) &&
       (f.speaker === 'all' || c.speaker === f.speaker) &&
-      (f.verdict === 'all' || (c.status === 'done' && c.check?.verdict === f.verdict))
+      (f.verdict === 'all' || ((c.status === 'done' || c.reviewed) && c.check?.verdict === f.verdict)) &&
+      (!f.changedOnly || changedInReview(c))
   )
 }
 
@@ -263,9 +313,13 @@ function FilterBar({ claims }: { claims: ClaimData[] }): React.JSX.Element | nul
   const setFilters = useClaims((s) => s.setFilters)
   if (claims.length === 0) return null
   const counts = Object.fromEntries(
-    VERDICT_ORDER.map((v) => [v, claims.filter((c) => c.status === 'done' && c.check?.verdict === v).length])
+    VERDICT_ORDER.map((v) => [
+      v,
+      claims.filter((c) => (c.status === 'done' || c.reviewed) && c.check?.verdict === v).length
+    ])
   ) as Record<Verdict, number>
   const pending = claims.filter(isPending).length
+  const changed = claims.filter(changedInReview).length
   const speakers = [...new Set(claims.map((c) => c.speaker).filter(Boolean))] as string[]
 
   const chip = (active: boolean): string =>
@@ -280,7 +334,7 @@ function FilterBar({ claims }: { claims: ClaimData[] }): React.JSX.Element | nul
       <button
         type="button"
         className={chip(filters.verdict === 'all' && !filters.pendingOnly)}
-        onClick={() => setFilters({ verdict: 'all', pendingOnly: false })}
+        onClick={() => setFilters({ verdict: 'all', pendingOnly: false, changedOnly: false })}
       >
         Todas · {claims.length}
       </button>
@@ -298,6 +352,16 @@ function FilterBar({ claims }: { claims: ClaimData[] }): React.JSX.Element | nul
           </button>
         )
       })}
+      {changed > 0 && (
+        <button
+          type="button"
+          className={chip(filters.changedOnly)}
+          onClick={() => setFilters({ changedOnly: !filters.changedOnly })}
+          data-testid="filter-changed"
+        >
+          <Microscope size={11} /> Mudou na revisão · {changed}
+        </button>
+      )}
       {pending > 0 && (
         <button
           type="button"
@@ -329,10 +393,13 @@ function FilterBar({ claims }: { claims: ClaimData[] }): React.JSX.Element | nul
 export function ChecksPanel({
   seekable,
   hasSession,
+  reviewable,
   onOpenSettings
 }: {
   seekable: boolean
   hasSession: boolean
+  /** Sessão encerrada/salva com afirmações: pode ser rechecada com o modelo de qualidade. */
+  reviewable: boolean
   onOpenSettings(): void
 }): React.JSX.Element {
   const byId = useClaims((s) => s.byId)
@@ -350,6 +417,7 @@ export function ChecksPanel({
           {error}
         </p>
       )}
+      {reviewable && claims.length > 0 && <ReviewBar />}
       <FilterBar claims={claims} />
       {claims.length === 0 ? (
         <EmptyState

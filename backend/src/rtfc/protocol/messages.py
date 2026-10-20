@@ -117,9 +117,15 @@ class ClaimData(_Message):
     context: str | None = None
     """Contexto da afirmação para a checagem (quem disse, sobre o quê, quando), do extrator."""
     stage: CheckStage | None = None
-    """Etapa da checagem em andamento (com `status="checking"`)."""
+    """Etapa da checagem em andamento (com `status="checking"` ou revisão "checking")."""
     check: CheckData | None = None
+    """Resultado principal: o da revisão, se houver; senão o da checagem ao vivo."""
     error: str | None = None
+    reviewed: bool = False
+    """`check` veio da rechecagem com o modelo de qualidade (M6.1)."""
+    previous_verdict: Verdict | None = None
+    """Veredicto da checagem ao vivo, quando há revisão (para mostrar o que mudou)."""
+    review_status: Literal["queued", "checking", "done", "error", "cancelled"] | None = None
 
 
 class LlmRoleData(_Message):
@@ -136,6 +142,8 @@ class SearchSettingsData(_Message):
 
 
 class SettingsData(_Message):
+    reviewer: LlmRoleData
+    auto_review: bool
     min_claim_score: int = Field(ge=1, le=5)
     """Nota mínima (1–5) de relevância/checabilidade para uma afirmação ser registrada."""
     extractor: LlmRoleData
@@ -314,6 +322,20 @@ class LlmModelsResult(_Message):
     message: str | None = None
 
 
+class ReviewStatus(_Message):
+    """Progresso da rechecagem de uma sessão com o modelo de qualidade."""
+
+    type: Literal["review.status"] = "review.status"
+    id: str | None = None
+    session_id: str
+    state: Literal["idle", "preparing", "running", "paused", "done", "cancelled"]
+    done: int = 0
+    total: int = 0
+    eta_s: int | None = None
+    model: str | None = None
+    message: str | None = None
+
+
 class SearchTestResult(_Message):
     type: Literal["search.test.result"] = "search.test.result"
     id: str
@@ -356,7 +378,8 @@ ServerMessage = Annotated[
     | SettingsResult
     | LlmTestResult
     | LlmModelsResult
-    | SearchTestResult,
+    | SearchTestResult
+    | ReviewStatus,
     Field(discriminator="type"),
 ]
 
@@ -475,6 +498,31 @@ class ClaimDiscard(_Message):
     claim_id: str
 
 
+class ReviewStart(_Message):
+    """Recheca as afirmações da sessão com o modelo de qualidade.
+
+    scope: `all` = todas; `pending` = as ainda não revisadas; `doubtful` = as que o modelo
+    rápido deu como inconclusivas, fora de contexto ou com erro.
+    """
+
+    type: Literal["review.start"] = "review.start"
+    id: str
+    session_id: str
+    scope: Literal["all", "pending", "doubtful"] = "pending"
+
+
+class ReviewCancel(_Message):
+    type: Literal["review.cancel"] = "review.cancel"
+    id: str
+    session_id: str
+
+
+class ReviewGet(_Message):
+    type: Literal["review.get"] = "review.get"
+    id: str
+    session_id: str
+
+
 class CheckCancel(_Message):
     type: Literal["check.cancel"] = "check.cancel"
     id: str
@@ -520,7 +568,7 @@ class LlmTest(_Message):
 
     type: Literal["llm.test"] = "llm.test"
     id: str
-    role: Literal["extractor", "checker"]
+    role: Literal["extractor", "checker", "reviewer"]
     config: LlmRoleData | None = None
 
 
@@ -553,6 +601,9 @@ AnyClientMessage = (
     | CheckCancel
     | CheckRetry
     | SearchTest
+    | ReviewStart
+    | ReviewCancel
+    | ReviewGet
 )
 ClientMessage = Annotated[AnyClientMessage, Field(discriminator="type")]
 

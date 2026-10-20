@@ -60,6 +60,8 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   showEnded(info) {
     set({ viewing: info })
     void get().refresh()
+    // O painel de checagens passa a oferecer a rechecagem com o modelo de qualidade.
+    void useClaims.getState().refreshReview()
   },
 
   async rename(sessionId, title) {

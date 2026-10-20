@@ -46,6 +46,9 @@ from rtfc.protocol import (
     LlmTest,
     Ping,
     Pong,
+    ReviewCancel,
+    ReviewGet,
+    ReviewStart,
     SearchTest,
     SecretSet,
     SessionDelete,
@@ -139,7 +142,8 @@ def default_manager() -> SessionManager:
     if fake_enabled() and not settings.path.exists():
         # E2E: extração determinística, sem rede nem modelo local.
         fake = LlmRole(provider="fake", model="fake")
-        settings.save(Settings(extractor=fake, checker=fake))
+        reviewer = LlmRole(provider="fake", model="fake-review")
+        settings.save(Settings(extractor=fake, checker=fake, reviewer=reviewer))
     return SessionManager(
         sessions_dir,
         stt=SttService(),
@@ -280,6 +284,17 @@ class _Connection:
                 case ClaimDiscard():
                     claim = await self.manager.discard_claim(msg.claim_id)
                     return ClaimUpdated(id=msg.id, claim=self.manager.claim_data(claim))
+                case ReviewStart() | ReviewCancel() | ReviewGet():
+                    if self.manager.review is None:
+                        raise SessionError("revisão indisponível")
+                    self.manager.load_info(msg.session_id)  # valida a sessão
+                    if isinstance(msg, ReviewStart):
+                        status = await self.manager.review.start(msg.session_id, msg.scope)
+                    elif isinstance(msg, ReviewCancel):
+                        status = await self.manager.review.cancel(msg.session_id)
+                    else:
+                        status = self.manager.review.status(msg.session_id)
+                    return status.model_copy(update={"id": msg.id})
                 case CheckCancel() | CheckRetry():
                     if self.manager.checks is None:
                         raise SessionError("checagem indisponível")

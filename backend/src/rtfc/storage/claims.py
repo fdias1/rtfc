@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS claim (
     model         TEXT,
     error         TEXT,
     context       TEXT,
-    score         INTEGER
+    score         INTEGER,
+    review_status TEXT
 );
 CREATE INDEX IF NOT EXISTS claim_session ON claim(session_id, start_ms);
 """
@@ -52,6 +53,8 @@ class StoredClaim:
     """Contexto para a checagem (do extrator): quem disse, sobre o quê, quando."""
     score: int | None = None
     """Nota 1–5 de relevância/checabilidade dada pelo extrator (None em manuais)."""
+    review_status: str | None = None
+    """Revisão com o modelo de qualidade: queued, checking, done, error, cancelled (M6.1)."""
 
     def with_status(self, status: str, error: str | None = None) -> "StoredClaim":
         return replace(self, status=status, error=error)
@@ -63,7 +66,12 @@ class ClaimStore:
         self._db.executescript(SCHEMA)
         # Migrações de bancos criados por versões anteriores.
         cols = {r[1] for r in self._db.execute("PRAGMA table_info(claim)")}
-        for col, decl in (("error", "TEXT"), ("context", "TEXT"), ("score", "INTEGER")):
+        for col, decl in (
+            ("error", "TEXT"),
+            ("context", "TEXT"),
+            ("score", "INTEGER"),
+            ("review_status", "TEXT"),
+        ):
             if col not in cols:
                 with self._db:
                     self._db.execute(f"ALTER TABLE claim ADD COLUMN {col} {decl}")
@@ -103,7 +111,16 @@ class ClaimStore:
             cur = self._db.execute(
                 "UPDATE claim SET status = 'cancelled' WHERE status IN ('queued', 'checking')"
             )
+            self._db.execute(
+                "UPDATE claim SET review_status = 'cancelled'"
+                " WHERE review_status IN ('queued', 'checking')"
+            )
         return cur.rowcount
+
+    def with_review_status(self, claim_id: str, status: str | None) -> StoredClaim | None:
+        with self._db:
+            self._db.execute("UPDATE claim SET review_status = ? WHERE id = ?", (status, claim_id))
+        return self.get(claim_id)
 
     def delete_session(self, session_id: str) -> None:
         with self._db:
